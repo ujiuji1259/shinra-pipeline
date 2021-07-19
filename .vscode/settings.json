@@ -1,3 +1,4 @@
 {
-    "jupyter.jupyterServerType": "local"
+    "jupyter.jupyterServerType": "local",
+    "python.pythonPath": "/home/is/ujiie/.pyenv/versions/anaconda3-2019.10/bin/python"
 }
