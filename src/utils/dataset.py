@@ -1,4 +1,6 @@
 import sys
+sys.path.append("..")
+import json
 from collections import defaultdict
 from pathlib import Path
 import pickle
@@ -8,6 +10,7 @@ from tqdm import tqdm
 from transformers import AutoTokenizer
 
 from utils.util import decode_iob, is_chunk_start
+from utils.shinra_tokenizer import tokenize_sent
 
 def load_tokens(path, vocab):
     tokens = []
@@ -81,6 +84,43 @@ class ShinraData(object):
         if self.category is not None:
             self.attributes = self.attributes[self.category]
             self.attr2idx = self.attr2idx[self.category]
+
+    @classmethod
+    def from_one_doc_json(
+        cls,
+        attributes_path=None,
+        input_path=None,
+        tokenizer=None,
+    ):
+        with open(input_path, "r") as f:
+            data = json.load(f)
+        """
+        data = {
+            "page_id": page_id,
+            "page_title": title,
+            "category": category,
+            "plain_text":
+        }
+        """
+        tokens = []
+        text_offsets = []
+        sub2words = []
+        word_alignments = []
+        for sent in data["plain_text"]:
+            subwords, offset = tokenize_sent(sent, tokenizer)
+            word_alignment, sub2word = find_word_alignment(subwords)
+
+            tokens.append(subwords)
+            text_offsets.append(offset)
+            sub2words.append(sub2word)
+            word_alignments.append(word_alignment)
+
+        data["tokens"] = tokens
+        data["word_alignments"] = word_alignments
+        data["sub2word"] = sub2words
+        data["text_offsets"] = text_offsets
+
+        return cls(attributes_path, params=data)
 
     @classmethod
     def from_shinra2020_format(
@@ -185,6 +225,8 @@ class ShinraData(object):
 
         if self.nes is not None:
             outputs["labels"] = self.iob
+        else:
+            outputs["label"] = [None for i in range(len(self.tokens))]
 
         return outputs
 
@@ -236,5 +278,11 @@ class ShinraData(object):
 
 
 if __name__ == "__main__":
-    dataset = ShinraData.from_shinra2020_format("/data1/ujiie/shinra/tohoku_bert/attributes.pickle", Path("/data1/ujiie/shinra/tohoku_bert/Event/Event_Other"))
-    print(dataset[5].ner_inputs)
+    #dataset = ShinraData.from_shinra2020_format("/data1/ujiie/shinra/tohoku_bert/attributes.pickle", Path("/data1/ujiie/shinra/tohoku_bert/Event/Event_Other"))
+    #print(dataset[5].ner_inputs)
+    tokenizer = AutoTokenizer.from_pretrained("cl-tohoku/bert-base-japanese")
+    dataset = ShinraData.from_one_doc_json("/data1/ujiie/shinra/tohoku_bert/attributes.pickle", "sample.json", tokenizer)
+    print(dataset.tokens)
+    print(dataset.plain_text)
+    print(dataset.word_alignments)
+    print(dataset.text_offsets)

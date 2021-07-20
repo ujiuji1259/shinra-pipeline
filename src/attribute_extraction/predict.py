@@ -8,11 +8,11 @@ from model import BertForMultilabelNER
 
 
 def ner_for_shinradata(model, tokenizer, shinra_dataset, device):
-    processed_data = create_ner_dataset(shinra_dataset)
+    processed_data, valid_line_id = create_dataset_for_ner(shinra_dataset)
     dataset = NerDataset(processed_data, tokenizer)
     total_preds, _ = predict(model, dataset, device)
 
-    shinra_dataset.add_nes_from_iob(total_preds, valid_line_ids=processed_data["valid_line_id"])
+    shinra_dataset.add_nes_from_iob(total_preds, valid_line_ids=valid_line_id)
 
     return shinra_dataset
 
