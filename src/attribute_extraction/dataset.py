@@ -2,14 +2,29 @@ import sys
 from pathlib import Path
 sys.path.append("..")
 
+import torch
 from torch.utils.data import Dataset, DataLoader
 from utils.dataset import ShinraData
 from transformers import AutoTokenizer
 
 
-def create_ner_dataset(dataset):
+def create_batch_dataset_for_ner(datasets):
+    ner_dataset = [create_dataset_for_ner(d) for d in datasets]
     outputs = {}
-    ner_inputs = d.ner_inputs
+    outputs["tokens"] = [tokens for d in ner_dataset for tokens in d["tokens"]]
+    outputs["word_idxs"] = [word_idxs for d in ner_dataset for word_idxs in d["word_idxs"]]
+
+    if ner_dataset[0]["labels"] is not None:
+        outputs["labels"] = [labels for d in ner_dataset for labels in d["labels"]]
+    else:
+        outputs["labels"] = None
+
+    return outputs
+
+
+def create_dataset_for_ner(dataset):
+    outputs = {}
+    ner_inputs = dataset.ner_inputs
 
     valid_line_id = []
     tokens = []
@@ -37,14 +52,12 @@ class NerDataset(Dataset):
         "B": 1,
         "I": 2
     }
-    def __init__(self, dataset, tokenizer):
+    # datas = [{"tokens": , "word_idxs": , "labels": }, ...]
+    def __init__(self, datas, tokenizer):
         self.tokenizer = tokenizer
-
-        ner_inputs = [d.ner_inputs for d in dataset]
-        ner_inputs = [ner for ner in ner_inputs if "labels" in ner]
-        self.tokens = [tokens for ner in ner_inputs for tokens in ner["input_ids"] if len(tokens) > 0]
-        self.word_idxs = [word_idxs for ner in ner_inputs for word_idxs in ner["word_idxs"] if len(word_idxs) > 0]
-        self.labels = [labels for ner in ner_inputs for labels in ner["labels"] if len(labels[0]) > 0]
+        self.tokens = datas["tokens"]
+        self.word_idxs = datas["word_idxs"]
+        self.labels = datas["labels"]
 
     def __len__(self):
         return len(self.labels)
@@ -53,16 +66,23 @@ class NerDataset(Dataset):
         input_ids = ["[CLS]"] + self.tokens[item][:510] + ["[SEP]"]
         input_ids = self.tokenizer.convert_tokens_to_ids(input_ids)
         word_idxs = [idx+1 for idx in self.word_idxs[item] if idx <= 510]
-        labels = self.labels[item]
 
-        # truncate label using zip(_, word_idxs)
-        labels = [[self.label2id[l] for l, _ in zip(label, word_idxs)] for label in labels]
+        if self.labels is not None:
+            labels = self.labels[item]
+            # truncate label using zip(_, word_idxs)
+            labels = [[self.label2id[l] for l, _ in zip(label, word_idxs)] for label in labels]
+        else:
+            labels = None
 
         return input_ids, word_idxs, labels
 
 def ner_collate_fn(batch):
     tokens, word_idxs, labels = list(zip(*batch))
-    labels = [[label[idx] for label in labels] for idx in range(len(labels[0]))]
+    if labels is not None:
+        labels = [[label[idx] for label in labels] for idx in range(len(labels[0]))]
+    else:
+        labels = None
+
     return {"tokens": tokens, "word_idxs": word_idxs, "labels": labels}
 
 if __name__ == "__main__":

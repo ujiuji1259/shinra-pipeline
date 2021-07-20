@@ -9,4 +9,4 @@ python train.py \
     --grad_acc 1 \
     --warmup 0.1 \
     --grad_clip 1.0 \
-    --note without_scheduler_and_without_gradient_clip
+    --note without_scheduler_and_with_gradient_clip

@@ -18,8 +18,9 @@ import mlflow
 
 from utils.dataset import ShinraData
 from utils.util import get_scheduler, to_parallel, save_model, decode_iob
-from dataset import NerDataset, ner_collate_fn
+from dataset import NerDataset, ner_collate_fn, create_batch_dataset_for_ner
 from model import BertForMultilabelNER
+from predict import predict
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -45,7 +46,15 @@ def parse_arg():
 
     return args
 
+def evaluate(model, dataset, attributes, args):
+    total_preds, total_trues = predict(model, dataset, device)
+    total_preds = decode_iob(total_preds, attributes)
+    total_trues = decode_iob(total_trues, attributes)
 
+    f1 = f1_score(total_trues, total_preds)
+    return f1
+
+"""
 def evaluate(model, dataset, attributes, args):
     dataloader = DataLoader(dataset, batch_size=args.bsz, collate_fn=ner_collate_fn)
 
@@ -73,13 +82,9 @@ def evaluate(model, dataset, attributes, args):
         total_preds.extend(pred_iobs)
         total_trues.extend(true_iobs)
 
-    with open("total_preds.json", "w") as f:
-        json.dump(total_preds, f)
-    with open("total_trues.json", "w") as f:
-        json.dump(total_trues, f)
-
     f1 = f1_score(total_trues, total_preds)
     return f1
+"""
 
 
 def train(model, train_dataset, valid_dataset, attributes, args):
@@ -137,9 +142,9 @@ def train(model, train_dataset, valid_dataset, attributes, args):
             bar.update(args.bsz)
 
             if (step + 1) % args.grad_acc == 0:
-                # torch.nn.utils.clip_grad_norm_(
-                #     model.parameters(), args.grad_clip
-                # )
+                torch.nn.utils.clip_grad_norm_(
+                    model.parameters(), args.grad_clip
+                )
                 optimizer.step()
                 # scheduler.step()
                 optimizer.zero_grad()
@@ -147,10 +152,9 @@ def train(model, train_dataset, valid_dataset, attributes, args):
         losses.append(total_loss / (step+1))
         mlflow.log_metric("Trian loss", losses[-1], step=e)
 
-        with torch.no_grad():
-            model.eval()
-            #valid_f1 = evaluate(model, train_dataset, attributes, args)
-            valid_f1 = evaluate(model, valid_dataset, attributes, args)
+        #valid_f1 = evaluate(model, train_dataset, attributes, args)
+        valid_f1 = evaluate(model, valid_dataset, attributes, args)
+
         valid_scores.append(valid_f1)
         mlflow.log_metric("Valid F1", valid_scores[-1], step=e)
 
@@ -166,6 +170,7 @@ if __name__ == "__main__":
     bert = AutoModel.from_pretrained(args.bert_name)
     tokenizer = AutoTokenizer.from_pretrained(args.bert_name)
 
+    # dataset = [ShinraData(), ....]
     dataset = ShinraData.from_shinra2020_format(Path(args.attribute_list), Path(args.input_path))
 
     model = BertForMultilabelNER(bert, len(dataset[0].attributes), device).to(device)
@@ -174,17 +179,20 @@ if __name__ == "__main__":
     if (data_split / "train.txt").exists():
         with open(data_split / "train.txt", "r") as f:
             train_ids = set([int(l) for l in f.read().split("\n") if l != ""])
-        train_dataset = NerDataset([d for d in dataset if d.page_id in train_ids], tokenizer)
+        train_dataset = [d for d in dataset if d.page_id in train_ids]
+        train_dataset = NerDataset(create_batch_dataset_for_ner(train_dataset), tokenizer)
 
     if (data_split / "valid.txt").exists():
         with open(data_split / "valid.txt", "r") as f:
             valid_ids = set([int(l) for l in f.read().split("\n") if l != ""])
-        valid_dataset = NerDataset([d for d in dataset if d.page_id in valid_ids], tokenizer)
+        valid_dataset = [d for d in dataset if d.page_id in valid_ids]
+        valid_dataset = NerDataset(create_batch_dataset_for_ner(valid_dataset), tokenizer)
 
     if (data_split / "test.txt").exists():
         with open(data_split / "test.txt", "r") as f:
             test_ids = set([int(l) for l in f.read().split("\n") if l != ""])
-        test_dataset = NerDataset([d for d in dataset if d.page_id in test_ids], tokenizer)
+        test_dataset = [d for d in dataset if d.page_id in test_ids]
+        test_dataset = NerDataset(create_batch_dataset_for_ner(test_dataset), tokenizer)
 
     mlflow.start_run()
     #valid_f1 = evaluate(model, valid_dataset, dataset[0].attributes, args)

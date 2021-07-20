@@ -1,3 +1,4 @@
+import sys
 from collections import defaultdict
 from pathlib import Path
 import pickle
@@ -5,6 +6,8 @@ import json
 
 from tqdm import tqdm
 from transformers import AutoTokenizer
+
+from utils.util import decode_iob, is_chunk_start
 
 def load_tokens(path, vocab):
     tokens = []
@@ -122,6 +125,56 @@ class ShinraData(object):
             docs.append(cls(attributes_path, params=data))
 
         return docs
+
+    # iobs = [sents1, sents2, ...]
+    # sents1 = [[iob1_attr1, iob2_attr1, ...], [iob1_attr2, iob2_attr2, ...], ...]
+    def add_nes_from_iob(self, iobs, valid_line_ids=None):
+        self.nes = []
+        if valid_line_ids is None:
+            ite = enumerate(iob)
+        else:
+            ite = zip(valid_line_ids, iobs)
+
+        for line_id, sent_iob in ite:
+            word2subword = self.word_alignments[line_id]
+            tokens = self.tokens[line_id]
+            text_offsets = self.text_offsets[line_id]
+            for iob, attr in zip(sent_iob, self.attributes):
+                ne = {}
+                iob = [0] + iob + [0]
+                for token_idx in range(1, len(iob)):
+                    if is_chunk_start(iob[token_idx-1], iob[token_idx]):
+                        ne["attribute"] = attr
+                        ne["token_offset"] = {
+                            "start": {
+                                "line_id": line_id,
+                                "offset": word2subword[token_idx-1]
+                            }
+                        }
+                        ne["text_offset"] = {
+                            "start": {
+                                "line_id": line_id,
+                                "offset": text_offsets[word2subword[token_idx-1]][0]
+                            }
+                        }
+
+                    if is_chunk_end(iob[token_idx-1], iob[token_idx]):
+                        assert ne != {}
+                        # token_idxは本来のものから+1されているので，word2subwordはneの外のはじめのtoken_id
+                        end_offset = len(tokens) if token_idx == len(word2subword) else word2subword[token_idx]
+                        ne["token_offset"]["end"] = {
+                            "line_id": line_id,
+                            "offset": end_offset
+                        }
+                        ne["token_offset"]["text"] = " ".join(tokens[ne["token_offset"]["start"]["offset"]:ne["token_offset"]["end"]["offset"]])
+
+                        ne["text_offset"]["end"] = {
+                            "line_id": line_id,
+                            "offset": text_offsets[end_offset-1]
+                        }
+
+                        self.nes.append(ne)
+                        ne = {}
 
     @property
     def ner_inputs(self):

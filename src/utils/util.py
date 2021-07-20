@@ -2,6 +2,17 @@ import torch
 from transformers import get_linear_schedule_with_warmup
 
 
+# "O": 0, "B": 1, "I": 2
+# 0,1 0,2 1,1 2,1
+def is_chunk_start(prev_tag, tag):
+    return tag == 1 or (prev_tag == 0 and tag == 2)
+
+
+# 1,0 2,0 1,1 2,1
+def is_chunk_end(prev_tag, tag):
+    return prev_tag != 0 and tag != 2
+
+
 def save_model(model, output_path):
     model_to_save = model.module if hasattr(model, "module") else model
     torch.save(model_to_save.state_dict(), output_path)
