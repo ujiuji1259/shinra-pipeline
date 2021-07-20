@@ -9,6 +9,12 @@ class BertForMultilabelNER(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
         # classifier that classifies token into IOB tag (B, I, O) for each attribute
+        # output_layer = [nn.Linear(768, 200) for i in range(attribute_num)]
+        # self.output_layer = nn.ModuleList(output_layer)
+
+        # self.relu = nn.ReLU()
+
+        # classifier that classifies token into IOB tag (B, I, O) for each attribute
         classifiers = [nn.Linear(768, 3) for i in range(attribute_num)]
         self.classifiers = nn.ModuleList(classifiers)
 
@@ -68,6 +74,8 @@ class BertForMultilabelNER(nn.Module):
         sequence_output = torch.bmm(pooler_matrix, sequence_output)
         sequence_output = self.dropout(sequence_output)
 
+        #hiddens = [self.relu(layer(sequence_output)) for layer in self.output_layer]
+        #logits = [classifier(hiddens) for classifier, hiddens in zip(self.classifiers, hiddens)]
         logits = [classifier(sequence_output) for classifier in self.classifiers]
 
         loss = None
@@ -76,7 +84,7 @@ class BertForMultilabelNER(nn.Module):
             loss = 0
 
             for label, logit in zip(labels, logits):
-                loss += loss_fct(logit.view(-1, 3), label.view(-1))
+                loss += loss_fct(logit.view(-1, 3), label.view(-1)) / len(labels)
 
         output = (logits, ) + outputs[2:]
         return ((loss,) + output) if loss is not None else output

@@ -6,6 +6,31 @@ from torch.utils.data import Dataset, DataLoader
 from utils.dataset import ShinraData
 from transformers import AutoTokenizer
 
+
+def create_ner_dataset(dataset):
+    outputs = {}
+    ner_inputs = d.ner_inputs
+
+    valid_line_id = []
+    tokens = []
+    for idx, data in enumerate(ner_inputs["input_ids"]):
+        if len(data) > 0:
+            tokens.append(data)
+            valid_line_id.append(idx)
+
+    outputs["tokens"] = tokens
+    outputs["valid_line_id"] = valid_line_id
+
+    outputs["word_idxs"] = [ner_inputs["word_idxs"][i] for i in valid_line_id]
+
+    if "labels" not in ner_inputs:
+        outputs["labels"] = None
+    else:
+        outputs["labels"] = [ner_inputs["labels"][i] for i in valid_line_id]
+
+    return outputs
+
+
 class NerDataset(Dataset):
     label2id = {
         "O": 0,
@@ -27,7 +52,7 @@ class NerDataset(Dataset):
     def __getitem__(self, item):
         input_ids = ["[CLS]"] + self.tokens[item][:510] + ["[SEP]"]
         input_ids = self.tokenizer.convert_tokens_to_ids(input_ids)
-        word_idxs = [idx+1 for idx in self.word_idxs[item] if idx < 510]
+        word_idxs = [idx+1 for idx in self.word_idxs[item] if idx <= 510]
         labels = self.labels[item]
 
         # truncate label using zip(_, word_idxs)

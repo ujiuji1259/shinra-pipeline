@@ -174,7 +174,7 @@ class ShinraData(object):
             # 正解となるsubwordを含むwordまでタグ付
             attr_idx = self.attr2idx[ne["attribute"]]
             ne_start = self.sub2word[start_line][start_offset]
-            ne_end = self.sub2word[end_line][end_offset-1]
+            ne_end = self.sub2word[end_line][end_offset-1] + 1
 
             for idx in range(ne_start, ne_end):
                 iobs[start_line][attr_idx][idx] = "B" if idx == ne_start else "I"

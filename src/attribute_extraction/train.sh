@@ -5,7 +5,8 @@ python train.py \
     --data_split /data1/ujiie/shinra/tohoku_bert/data_split/Event_Other \
     --lr 1e-5 \
     --bsz 32 \
-    --epoch 10 \
+    --epoch 50 \
     --grad_acc 1 \
     --warmup 0.1 \
-    --grad_clip 1.0
+    --grad_clip 1.0 \
+    --note without_scheduler_and_without_gradient_clip

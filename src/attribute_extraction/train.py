@@ -1,10 +1,14 @@
 import argparse
 import sys
 from pathlib import Path
-sys.path.append("..")
+import json
+
+from torch.optim.optimizer import Optimizer
+
+sys.path.append("/home/is/ujiie/shinra-pipeline/src")
 
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 from torch.nn.utils.rnn import pad_sequence
 import torch.optim as optim
 from transformers import AutoTokenizer, AutoModel
@@ -35,6 +39,7 @@ def parse_arg():
     parser.add_argument("--warmup", type=float, help="Specify attribute_list path in SHINRA2020")
     parser.add_argument("--grad_clip", type=float, help="Specify attribute_list path in SHINRA2020")
     parser.add_argument("--parallel", action="store_true", help="Specify attribute_list path in SHINRA2020")
+    parser.add_argument("--note", type=str, help="Specify attribute_list path in SHINRA2020")
 
     args = parser.parse_args()
 
@@ -42,8 +47,7 @@ def parse_arg():
 
 
 def evaluate(model, dataset, attributes, args):
-    dataloader = DataLoader(dataset, batch_size=args.bsz, collate_fn=ner_collate_fn, shuffle=True)
-    bar = tqdm(total=len(dataset))
+    dataloader = DataLoader(dataset, batch_size=args.bsz, collate_fn=ner_collate_fn)
 
     total_preds = []
     total_trues = []
@@ -69,16 +73,29 @@ def evaluate(model, dataset, attributes, args):
         total_preds.extend(pred_iobs)
         total_trues.extend(true_iobs)
 
-    f1 = f1_score(true_iobs, pred_iobs)
+    with open("total_preds.json", "w") as f:
+        json.dump(total_preds, f)
+    with open("total_trues.json", "w") as f:
+        json.dump(total_trues, f)
+
+    f1 = f1_score(total_trues, total_preds)
     return f1
 
 
 def train(model, train_dataset, valid_dataset, attributes, args):
+    #train_dataset = Subset(train_dataset, [i for i in range(64)])
     valid_dataloader = DataLoader(train_dataset, batch_size=args.bsz, collate_fn=ner_collate_fn)
+    # bert_parameter = list(model.bert.parameters())
+    # other_parameter = list(model.classifiers.parameters())
+    # optimizer_grouped_parameters = [
+    #     {'params': bert_parameter, 'lr':args.lr},
+    #     {'params': other_parameter, 'lr':0.001}
+    # ]
 
-    optimizer = optim.Adam(model.parameters(), lr=args.lr)
-    scheduler = get_scheduler(
-        args.bsz, args.grad_acc, args.epoch, args.warmup, optimizer, len(train_dataset))
+    optimizer = optim.AdamW(model.parameters(), lr=args.lr)
+    #optimizer = optim.Adam(optimizer_grouped_parameters)
+    # scheduler = get_scheduler(
+    #     args.bsz, args.grad_acc, args.epoch, args.warmup, optimizer, len(train_dataset))
 
     if args.parallel:
         model = to_parallel(model)
@@ -90,6 +107,7 @@ def train(model, train_dataset, valid_dataset, attributes, args):
         bar = tqdm(total=len(train_dataset))
 
         total_loss = 0
+        model.train()
         for step, inputs in enumerate(train_dataloader):
             input_ids = inputs["tokens"]
             word_idxs = inputs["word_idxs"]
@@ -112,28 +130,34 @@ def train(model, train_dataset, valid_dataset, attributes, args):
 
             total_loss += loss.item()
             mlflow.log_metric("Trian batch loss", loss.item(), step=(e+1) * step)
+            # mlflow.log_metric("Learning rate", scheduler.get_lr()[-1], step=(e+1) * step)
+
             bar.set_description(f"[Epoch] {e + 1}")
-            bar.set_postfix({"loss":loss.item()})
-            bar.update(1)
+            bar.set_postfix({"loss": loss.item()})
+            bar.update(args.bsz)
 
             if (step + 1) % args.grad_acc == 0:
-                torch.nn.utils.clip_grad_norm_(
-                    model.parameters(), args.grad_clip
-                )
+                # torch.nn.utils.clip_grad_norm_(
+                #     model.parameters(), args.grad_clip
+                # )
                 optimizer.step()
-                scheduler.step()
+                # scheduler.step()
                 optimizer.zero_grad()
 
-        losses.append(total_loss / len(train_dataset))
+        losses.append(total_loss / (step+1))
         mlflow.log_metric("Trian loss", losses[-1], step=e)
 
-        with torch.zero_grad():
+        with torch.no_grad():
+            model.eval()
+            #valid_f1 = evaluate(model, train_dataset, attributes, args)
             valid_f1 = evaluate(model, valid_dataset, attributes, args)
         valid_scores.append(valid_f1)
         mlflow.log_metric("Valid F1", valid_scores[-1], step=e)
 
+        """
         if valid_scores[-1] < valid_scores[-2] and valid_scores[-1] < valid_scores[-3]:
             break
+        """
 
 
 if __name__ == "__main__":
@@ -163,5 +187,8 @@ if __name__ == "__main__":
         test_dataset = NerDataset([d for d in dataset if d.page_id in test_ids], tokenizer)
 
     mlflow.start_run()
+    #valid_f1 = evaluate(model, valid_dataset, dataset[0].attributes, args)
+    #print(valid_f1)
+    mlflow.log_params(vars(args))
     train(model, train_dataset, valid_dataset, dataset[0].attributes, args)
     mlflow.end_run()
