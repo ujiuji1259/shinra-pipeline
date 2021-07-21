@@ -99,8 +99,8 @@ def train(model, train_dataset, valid_dataset, attributes, args):
 
     optimizer = optim.AdamW(model.parameters(), lr=args.lr)
     #optimizer = optim.Adam(optimizer_grouped_parameters)
-    # scheduler = get_scheduler(
-    #     args.bsz, args.grad_acc, args.epoch, args.warmup, optimizer, len(train_dataset))
+    scheduler = get_scheduler(
+        args.bsz, args.grad_acc, args.epoch, args.warmup, optimizer, len(train_dataset))
 
     if args.parallel:
         model = to_parallel(model)
@@ -146,7 +146,7 @@ def train(model, train_dataset, valid_dataset, attributes, args):
                     model.parameters(), args.grad_clip
                 )
                 optimizer.step()
-                # scheduler.step()
+                scheduler.step()
                 optimizer.zero_grad()
 
         losses.append(total_loss / (step+1))

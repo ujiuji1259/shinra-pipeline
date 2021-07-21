@@ -3,8 +3,8 @@ from torch.utils.data import DataLoader, Subset
 from torch.nn.utils.rnn import pad_sequence
 
 from utils.dataset import ShinraData
-from dataset import NerDataset, ner_collate_fn, create_dataset_for_ner
-from model import BertForMultilabelNER
+from attribute_extraction.dataset import NerDataset, ner_collate_fn, create_dataset_for_ner
+from attribute_extraction.model import BertForMultilabelNER
 
 
 def ner_for_shinradata(model, tokenizer, shinra_dataset, device):

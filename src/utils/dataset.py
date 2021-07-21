@@ -9,7 +9,7 @@ import json
 from tqdm import tqdm
 from transformers import AutoTokenizer
 
-from utils.util import decode_iob, is_chunk_start
+from utils.util import decode_iob, is_chunk_start, is_chunk_end
 from utils.shinra_tokenizer import tokenize_sent
 
 def load_tokens(path, vocab):
@@ -166,6 +166,10 @@ class ShinraData(object):
 
         return docs
 
+    def add_linkpage(self, pages):
+        for ne, page in zip(self.nes, pages):
+            ne["link_page_id"] = int(page)
+
     # iobs = [sents1, sents2, ...]
     # sents1 = [[iob1_attr1, iob2_attr1, ...], [iob1_attr2, iob2_attr2, ...], ...]
     def add_nes_from_iob(self, iobs, valid_line_ids=None):
@@ -215,6 +219,33 @@ class ShinraData(object):
 
                         self.nes.append(ne)
                         ne = {}
+
+    @property
+    def entity_linking_inputs(self):
+        dataset = []
+        for ne in self.nes:
+            mention = ne['text_offset']['text']
+            start_line, start_off = ne['token_offset']['start']['line_id'], ne['token_offset']['start']['offset']
+            end_line, end_off = ne['token_offset']['end']['line_id'], ne['token_offset']['end']['offset']
+
+            if start_line == end_line:
+                mention_tokens = self.tokens[start_line][start_off:end_off]
+                left_context = [token for tokens in self.tokens[:start_line] for token in tokens] + self.tokens[start_line][:start_off]
+                right_context = self.tokens[start_line][end_off:] + [token for tokens in self.tokens[start_line+1:] for token in tokens]
+            else:
+                mention_tokens = self.tokens[start_line][start_off:] + self.tokens[end_line][:end_off]
+                left_context = [token for tokens in self.tokens[:start_line] for token in tokens] + self.tokens[start_line][:start_off]
+                right_context = self.tokens[end_line][end_off:] + [token for tokens in self.tokens[end_line+1:] for token in tokens]
+
+            dataset.append({
+                "left_context": left_context,
+                "mention": mention_tokens,
+                "right_context": right_context,
+                "link_page_id": int(ne["link_page_id"]) if "link_page_id" in ne else None,
+                "annotation": ne
+            })
+
+        return dataset
 
     @property
     def ner_inputs(self):
