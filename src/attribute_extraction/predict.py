@@ -39,7 +39,11 @@ def predict(model, dataset, device):
                 word_idxs=word_idxs,
             )
 
-            total_preds.extend(preds)
-            total_trues.extend(labels if labels is not None else [None])
+            total_preds.append(preds)
+            total_trues.append(labels if labels is not None else [None])
+
+    attr_num = len(total_preds[0])
+    total_preds = [[pred for preds in total_preds for pred in preds[attr]] for attr in range(attr_num)]
+    total_trues = [[true for trues in total_trues for true in trues[attr]] for attr in range(attr_num)]
 
     return total_preds, total_trues

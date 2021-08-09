@@ -1,12 +1,13 @@
 python train.py \
     --bert_name cl-tohoku/bert-base-japanese \
-    --input_path /data1/ujiie/shinra/tohoku_bert/Event/Event_Other \
+    --input_path /data1/ujiie/shinra/tohoku_bert/Event/Competition \
     --attribute_list /data1/ujiie/shinra/tohoku_bert/attributes.pickle \
-    --data_split /data1/ujiie/shinra/tohoku_bert/data_split/Event_Other \
+    --data_split /data1/ujiie/shinra/tohoku_bert/data_split/Competition \
+    --model_path /home/is/ujiie/shinra-pipeline/models/Competition.model \
     --lr 1e-5 \
     --bsz 32 \
     --epoch 50 \
     --grad_acc 1 \
     --warmup 0.1 \
     --grad_clip 1.0 \
-    --note with_scheduler_and_with_gradient_clip
+    --note with_two_output_layer \

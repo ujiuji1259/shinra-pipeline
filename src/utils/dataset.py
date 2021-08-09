@@ -257,7 +257,7 @@ class ShinraData(object):
         if self.nes is not None:
             outputs["labels"] = self.iob
         else:
-            outputs["label"] = [None for i in range(len(self.tokens))]
+            outputs["labels"] = [None for i in range(len(self.tokens))]
 
         return outputs
 

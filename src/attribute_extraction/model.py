@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from transformers import AutoModel
+import numpy as np
 
 class BertForMultilabelNER(nn.Module):
     def __init__(self, bert, attribute_num, device, dropout=0.1, pooler="head"):
@@ -9,10 +10,10 @@ class BertForMultilabelNER(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
         # classifier that classifies token into IOB tag (B, I, O) for each attribute
-        # output_layer = [nn.Linear(768, 200) for i in range(attribute_num)]
-        # self.output_layer = nn.ModuleList(output_layer)
+        output_layer = [nn.Linear(768, 768) for i in range(attribute_num)]
+        self.output_layer = nn.ModuleList(output_layer)
 
-        # self.relu = nn.ReLU()
+        self.relu = nn.ReLU()
 
         # classifier that classifies token into IOB tag (B, I, O) for each attribute
         classifiers = [nn.Linear(768, 3) for i in range(attribute_num)]
@@ -52,9 +53,10 @@ class BertForMultilabelNER(nn.Module):
             input_ids=input_ids,
             attention_mask=attention_mask,
             word_idxs=word_idxs)[0]
-        labels = [torch.argmax(logit.detach().cpu(), dim=-1) for logit in logits]
+        #labels = [torch.argmax(logit.detach().cpu(), dim=-1) for logit in logits]
+        labels = [self.viterbi(logit.detach().cpu()) for logit in logits]
 
-        truncated_labels = [[label[:len(word_idx)].tolist() for label, word_idx in zip(attr_labels, word_idxs)] for attr_labels in labels]
+        truncated_labels = [[label[:len(word_idx)] for label, word_idx in zip(attr_labels, word_idxs)] for attr_labels in labels]
 
         return truncated_labels
 
@@ -74,8 +76,8 @@ class BertForMultilabelNER(nn.Module):
         sequence_output = torch.bmm(pooler_matrix, sequence_output)
         sequence_output = self.dropout(sequence_output)
 
-        #hiddens = [self.relu(layer(sequence_output)) for layer in self.output_layer]
-        #logits = [classifier(hiddens) for classifier, hiddens in zip(self.classifiers, hiddens)]
+        # hiddens = [self.relu(layer(sequence_output)) for layer in self.output_layer]
+        # logits = [classifier(hiddens) for classifier, hiddens in zip(self.classifiers, hiddens)]
         logits = [classifier(sequence_output) for classifier in self.classifiers]
 
         loss = None
@@ -89,16 +91,36 @@ class BertForMultilabelNER(nn.Module):
         output = (logits, ) + outputs[2:]
         return ((loss,) + output) if loss is not None else output
 
+    def viterbi(self, logits, penalty=float('inf')):
+        num_tags = 3
+
+        # 0: O, 1: B, 2: I
+        penalties = torch.zeros((num_tags, num_tags))
+        penalties[0][2] = penalty
+
+        all_preds = []
+        for logit in logits:
+            pred_tags = [0]
+            for l in logit:
+                transit_penalty = penalties[pred_tags[-1]]
+                l = l - transit_penalty
+                tag = torch.argmax(l, dim=-1)
+                pred_tags.append(tag.item())
+            all_preds.append(pred_tags[1:])
+        return all_preds
+
+
 if __name__ == "__main__":
     bert = AutoModel.from_pretrained("cl-tohoku/bert-base-japanese")
 
     inputs = torch.tensor([[1,2,3,4,5,6], [2,3,4,5,6,7]])
     word_idxs = [[1,2,3], [2,3,4,5]]
 
-    model = BertForMultilabelNER(bert, 2)
+    model = BertForMultilabelNER(bert, 2, "cpu")
 
     attention_mask = inputs > 0
 
-    outputs = model(inputs, attention_mask=attention_mask, word_idxs=word_idxs, labels=labels)
+    #outputs = model.predict(inputs, attention_mask=attention_mask, word_idxs=word_idxs, labels=labels)
+    outputs = model.predict(inputs, attention_mask=attention_mask, word_idxs=word_idxs)
     print(outputs)
     #pooler = model._create_pooler_matrix(inputs, word_idxs)

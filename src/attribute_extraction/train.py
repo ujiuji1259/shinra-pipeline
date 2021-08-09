@@ -13,7 +13,7 @@ from torch.nn.utils.rnn import pad_sequence
 import torch.optim as optim
 from transformers import AutoTokenizer, AutoModel
 from tqdm import tqdm
-from seqeval.metrics import f1_score
+from seqeval.metrics import f1_score, classification_report
 import mlflow
 
 from utils.dataset import ShinraData
@@ -23,6 +23,27 @@ from model import BertForMultilabelNER
 from predict import predict
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
+
+
+class EarlyStopping():
+   def __init__(self, patience=0, verbose=0):
+       self._step = 0
+       self._score = - float('inf')
+       self.patience = patience
+       self.verbose = verbose
+
+   def validate(self, score):
+       if self._score > score:
+           self._step += 1
+           if self._step > self.patience:
+               if self.verbose:
+                   print('early stopping')
+               return True
+       else:
+           self._step = 0
+           self._score = score
+
+       return False
 
 
 def parse_arg():
@@ -89,7 +110,6 @@ def evaluate(model, dataset, attributes, args):
 
 def train(model, train_dataset, valid_dataset, attributes, args):
     #train_dataset = Subset(train_dataset, [i for i in range(64)])
-    valid_dataloader = DataLoader(train_dataset, batch_size=args.bsz, collate_fn=ner_collate_fn)
     # bert_parameter = list(model.bert.parameters())
     # other_parameter = list(model.classifiers.parameters())
     # optimizer_grouped_parameters = [
@@ -102,11 +122,12 @@ def train(model, train_dataset, valid_dataset, attributes, args):
     scheduler = get_scheduler(
         args.bsz, args.grad_acc, args.epoch, args.warmup, optimizer, len(train_dataset))
 
+    early_stopping = EarlyStopping(patience=10, verbose=1)
+
     if args.parallel:
         model = to_parallel(model)
 
     losses = []
-    valid_scores = [-float("inf"), -float("inf")]
     for e in range(args.epoch):
         train_dataloader = DataLoader(train_dataset, batch_size=args.bsz, collate_fn=ner_collate_fn, shuffle=True)
         bar = tqdm(total=len(train_dataset))
@@ -154,14 +175,10 @@ def train(model, train_dataset, valid_dataset, attributes, args):
 
         #valid_f1 = evaluate(model, train_dataset, attributes, args)
         valid_f1 = evaluate(model, valid_dataset, attributes, args)
+        mlflow.log_metric("Valid F1", valid_f1, step=e)
 
-        valid_scores.append(valid_f1)
-        mlflow.log_metric("Valid F1", valid_scores[-1], step=e)
-
-        """
-        if valid_scores[-1] < valid_scores[-2] and valid_scores[-1] < valid_scores[-3]:
+        if early_stopping.validate(valid_f1):
             break
-        """
 
 
 if __name__ == "__main__":
@@ -194,9 +211,12 @@ if __name__ == "__main__":
         test_dataset = [d for d in dataset if d.page_id in test_ids]
         test_dataset = NerDataset(create_batch_dataset_for_ner(test_dataset), tokenizer)
 
+    #model.load_state_dict(torch.load(args.model_path))
+    #evaluate(model, valid_dataset, dataset[0].attributes, args)
     mlflow.start_run()
     #valid_f1 = evaluate(model, valid_dataset, dataset[0].attributes, args)
     #print(valid_f1)
     mlflow.log_params(vars(args))
     train(model, train_dataset, valid_dataset, dataset[0].attributes, args)
+    torch.save(model.state_dict(), args.model_path)
     mlflow.end_run()
