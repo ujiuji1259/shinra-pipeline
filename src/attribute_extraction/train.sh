@@ -1,9 +1,9 @@
 python train.py \
     --bert_name cl-tohoku/bert-base-japanese \
-    --input_path /data1/ujiie/shinra/tohoku_bert/Event/Competition \
+    --input_path /data1/ujiie/shinra/tohoku_bert/JP-5/Airport \
     --attribute_list /data1/ujiie/shinra/tohoku_bert/attributes.pickle \
-    --data_split /data1/ujiie/shinra/tohoku_bert/data_split/Competition \
-    --model_path /home/is/ujiie/shinra-pipeline/models/Competition.model \
+    --data_split /data1/ujiie/shinra/tohoku_bert/data_split/Airport \
+    --model_path /home/is/ujiie/shinra-pipeline/models/ \
     --lr 1e-5 \
     --bsz 32 \
     --epoch 50 \

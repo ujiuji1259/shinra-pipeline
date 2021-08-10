@@ -19,6 +19,6 @@ do
             --grad_acc 1 \
             --warmup 0.1 \
             --grad_clip 1.0 \
-            --note "${category} with 2 output layers"
+            --note "${category} with 2 output layers without warmupstep"
     fi
 done

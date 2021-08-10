@@ -75,54 +75,15 @@ def evaluate(model, dataset, attributes, args):
     f1 = f1_score(total_trues, total_preds)
     return f1
 
-"""
-def evaluate(model, dataset, attributes, args):
-    dataloader = DataLoader(dataset, batch_size=args.bsz, collate_fn=ner_collate_fn)
-
-    total_preds = []
-    total_trues = []
-    for step, inputs in enumerate(dataloader):
-        input_ids = inputs["tokens"]
-        word_idxs = inputs["word_idxs"]
-
-        labels = inputs["labels"]
-        label_ids = [pad_sequence([torch.tensor(l) for l in label], padding_value=-1, batch_first=True).to(device)
-            for label in labels]
-
-        input_ids = pad_sequence([torch.tensor(t) for t in input_ids], padding_value=0, batch_first=True).to(device)
-        attention_mask = input_ids > 0
-
-        preds = model.predict(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            word_idxs=word_idxs,
-        )
-        pred_iobs = decode_iob(preds, attributes)
-        true_iobs = decode_iob(labels, attributes)
-
-        total_preds.extend(pred_iobs)
-        total_trues.extend(true_iobs)
-
-    f1 = f1_score(total_trues, total_preds)
-    return f1
-"""
-
 
 def train(model, train_dataset, valid_dataset, attributes, args):
-    #train_dataset = Subset(train_dataset, [i for i in range(64)])
-    # bert_parameter = list(model.bert.parameters())
-    # other_parameter = list(model.classifiers.parameters())
-    # optimizer_grouped_parameters = [
-    #     {'params': bert_parameter, 'lr':args.lr},
-    #     {'params': other_parameter, 'lr':0.001}
-    # ]
-
     optimizer = optim.AdamW(model.parameters(), lr=args.lr)
-    #optimizer = optim.Adam(optimizer_grouped_parameters)
-    scheduler = get_scheduler(
-        args.bsz, args.grad_acc, args.epoch, args.warmup, optimizer, len(train_dataset))
+    # scheduler = get_scheduler(
+    #     args.bsz, args.grad_acc, args.epoch, args.warmup, optimizer, len(train_dataset))
 
     early_stopping = EarlyStopping(patience=10, verbose=1)
+
+    category = Path(args.data_split).stem
 
     if args.parallel:
         model = to_parallel(model)
@@ -156,7 +117,6 @@ def train(model, train_dataset, valid_dataset, attributes, args):
 
             total_loss += loss.item()
             mlflow.log_metric("Trian batch loss", loss.item(), step=(e+1) * step)
-            # mlflow.log_metric("Learning rate", scheduler.get_lr()[-1], step=(e+1) * step)
 
             bar.set_description(f"[Epoch] {e + 1}")
             bar.set_postfix({"loss": loss.item()})
@@ -167,17 +127,20 @@ def train(model, train_dataset, valid_dataset, attributes, args):
                     model.parameters(), args.grad_clip
                 )
                 optimizer.step()
-                scheduler.step()
+                # scheduler.step()
                 optimizer.zero_grad()
 
         losses.append(total_loss / (step+1))
         mlflow.log_metric("Trian loss", losses[-1], step=e)
 
-        #valid_f1 = evaluate(model, train_dataset, attributes, args)
         valid_f1 = evaluate(model, valid_dataset, attributes, args)
         mlflow.log_metric("Valid F1", valid_f1, step=e)
 
-        if early_stopping.validate(valid_f1):
+        if early_stopping._score < valid_f1:
+            torch.save(model.state_dict(), args.model_path + f"{category}_best.model")
+
+
+        if e + 1 > 30 and early_stopping.validate(valid_f1):
             break
 
 
@@ -193,6 +156,7 @@ if __name__ == "__main__":
     model = BertForMultilabelNER(bert, len(dataset[0].attributes), device).to(device)
 
     data_split = Path(args.data_split)
+    train_dataset, valid_dataset, test_dataset = None, None, None
     if (data_split / "train.txt").exists():
         with open(data_split / "train.txt", "r") as f:
             train_ids = set([int(l) for l in f.read().split("\n") if l != ""])
@@ -211,12 +175,11 @@ if __name__ == "__main__":
         test_dataset = [d for d in dataset if d.page_id in test_ids]
         test_dataset = NerDataset(create_batch_dataset_for_ner(test_dataset), tokenizer)
 
-    #model.load_state_dict(torch.load(args.model_path))
-    #evaluate(model, valid_dataset, dataset[0].attributes, args)
+    assert train_dataset is not None, "Please specify the path for the training data"
+    assert valid_dataset is not None, "Please specify the path for the validation data"
+
     mlflow.start_run()
-    #valid_f1 = evaluate(model, valid_dataset, dataset[0].attributes, args)
-    #print(valid_f1)
     mlflow.log_params(vars(args))
     train(model, train_dataset, valid_dataset, dataset[0].attributes, args)
-    torch.save(model.state_dict(), args.model_path)
+    torch.save(model.state_dict(), args.model_path + f"{data_split.stem}_last.model")
     mlflow.end_run()

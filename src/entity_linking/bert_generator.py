@@ -177,7 +177,6 @@ class BertCandidateGenerator(object):
         index = np.array(index)
         np.save(index_output_file, index)
 
-
     def train_hard_negative(self,
           mention_dataset,
           candidate_dataset,
