@@ -15,15 +15,17 @@ from transformers import AutoTokenizer, AutoModel
 from tqdm import tqdm
 from seqeval.metrics import f1_score, classification_report
 import mlflow
+from transformers.trainer_utils import set_seed
 
 from utils.dataset import ShinraData
 from utils.util import get_scheduler, to_parallel, save_model, decode_iob
 from dataset import NerDataset, ner_collate_fn, create_batch_dataset_for_ner
-from model import BertForMultilabelNER
+from model import BertForMultilabelNER, create_pooler_matrix
 from predict import predict
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+device = "cuda:1" if torch.cuda.is_available() else "cpu"
 
+# seed固定
 
 class EarlyStopping():
    def __init__(self, patience=0, verbose=0):
@@ -51,7 +53,6 @@ def parse_arg():
 
     parser.add_argument("--bert_name", type=str, help="Specify BERT name")
     parser.add_argument("--input_path", type=str, help="Specify input path in SHINRA2020")
-    parser.add_argument("--attribute_list", type=str, help="Specify attribute_list path in SHINRA2020")
     parser.add_argument("--data_split", type=str, help="Specify attribute_list path in SHINRA2020")
     parser.add_argument("--model_path", type=str, help="Specify attribute_list path in SHINRA2020")
     parser.add_argument("--lr", type=float, help="Specify attribute_list path in SHINRA2020")
@@ -61,6 +62,7 @@ def parse_arg():
     parser.add_argument("--warmup", type=float, help="Specify attribute_list path in SHINRA2020")
     parser.add_argument("--grad_clip", type=float, help="Specify attribute_list path in SHINRA2020")
     parser.add_argument("--parallel", action="store_true", help="Specify attribute_list path in SHINRA2020")
+    parser.add_argument("--seed", type=int, help="Specify attribute_list path in SHINRA2020")
     parser.add_argument("--note", type=str, help="Specify attribute_list path in SHINRA2020")
 
     args = parser.parse_args()
@@ -105,12 +107,13 @@ def train(model, train_dataset, valid_dataset, attributes, args):
 
             input_ids = pad_sequence([torch.tensor(t) for t in input_ids], padding_value=0, batch_first=True).to(device)
             attention_mask = input_ids > 0
+            pooling_matrix = create_pooler_matrix(input_ids, word_idxs, pool_type="head").to(device)
 
             outputs = model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
-                word_idxs=word_idxs,
-                labels=labels)
+                labels=labels,
+                pooling_matrix=pooling_matrix)
 
             loss = outputs[0]
             loss.backward()
@@ -147,39 +150,56 @@ def train(model, train_dataset, valid_dataset, attributes, args):
 if __name__ == "__main__":
     args = parse_arg()
 
+    set_seed(args.seed)
+
     bert = AutoModel.from_pretrained(args.bert_name)
     tokenizer = AutoTokenizer.from_pretrained(args.bert_name)
 
     # dataset = [ShinraData(), ....]
-    dataset = ShinraData.from_shinra2020_format(Path(args.attribute_list), Path(args.input_path))
+    dataset = ShinraData.from_shinra2020_format(Path(args.input_path))
 
-    model = BertForMultilabelNER(bert, len(dataset[0].attributes), device).to(device)
 
     data_split = Path(args.data_split)
-    train_dataset, valid_dataset, test_dataset = None, None, None
+    train_dataset, valid_dataset, test_dataset = [], [], []
+    train_ids, valid_ids, test_ids = set(), set(), set()
+    attributes = None
     if (data_split / "train.txt").exists():
         with open(data_split / "train.txt", "r") as f:
             train_ids = set([int(l) for l in f.read().split("\n") if l != ""])
-        train_dataset = [d for d in dataset if d.page_id in train_ids]
-        train_dataset = NerDataset(create_batch_dataset_for_ner(train_dataset), tokenizer)
+        # train_dataset = [d for d in dataset if d.page_id in train_ids]
+        # train_dataset = NerDataset(create_batch_dataset_for_ner(train_dataset), tokenizer)
 
     if (data_split / "valid.txt").exists():
         with open(data_split / "valid.txt", "r") as f:
             valid_ids = set([int(l) for l in f.read().split("\n") if l != ""])
-        valid_dataset = [d for d in dataset if d.page_id in valid_ids]
-        valid_dataset = NerDataset(create_batch_dataset_for_ner(valid_dataset), tokenizer)
+        # valid_dataset = [d for d in dataset if d.page_id in valid_ids]
+        # valid_dataset = NerDataset(create_batch_dataset_for_ner(valid_dataset), tokenizer)
 
     if (data_split / "test.txt").exists():
         with open(data_split / "test.txt", "r") as f:
             test_ids = set([int(l) for l in f.read().split("\n") if l != ""])
-        test_dataset = [d for d in dataset if d.page_id in test_ids]
-        test_dataset = NerDataset(create_batch_dataset_for_ner(test_dataset), tokenizer)
+        # test_dataset = [d for d in dataset if d.page_id in test_ids]
+        # test_dataset = NerDataset(create_batch_dataset_for_ner(test_dataset), tokenizer)
+    for idx, data in enumerate(dataset):
+        if idx == 0:
+            attributes = data.attributes.copy()
+        if data.page_id in train_ids:
+            train_dataset.extend(data.ner_inputs)
+        if data.page_id in valid_ids:
+            valid_dataset.extend(data.ner_inputs)
+        if data.page_id in test_ids:
+            test_dataset.extend(data.ner_inputs)
 
-    assert train_dataset is not None, "Please specify the path for the training data"
-    assert valid_dataset is not None, "Please specify the path for the validation data"
+    assert len(train_dataset) != 0, "Please specify the path for the training data"
+    assert len(valid_dataset) != 0, "Please specify the path for the validation data"
+
+    train_dataset = NerDataset(train_dataset, tokenizer)
+    valid_dataset = NerDataset(valid_dataset, tokenizer)
+
+    model = BertForMultilabelNER(bert, len(attributes)).to(device)
 
     mlflow.start_run()
     mlflow.log_params(vars(args))
-    train(model, train_dataset, valid_dataset, dataset[0].attributes, args)
+    train(model, train_dataset, valid_dataset, attributes, args)
     torch.save(model.state_dict(), args.model_path + f"{data_split.stem}_last.model")
     mlflow.end_run()

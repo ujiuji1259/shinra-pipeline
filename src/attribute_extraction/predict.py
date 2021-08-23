@@ -4,7 +4,7 @@ from torch.nn.utils.rnn import pad_sequence
 
 from utils.dataset import ShinraData
 from attribute_extraction.dataset import NerDataset, ner_collate_fn, create_dataset_for_ner
-from attribute_extraction.model import BertForMultilabelNER
+from attribute_extraction.model import BertForMultilabelNER, create_pooler_matrix
 
 
 def ner_for_shinradata(model, tokenizer, shinra_dataset, device):
@@ -32,6 +32,7 @@ def predict(model, dataset, device):
 
             input_ids = pad_sequence([torch.tensor(t) for t in input_ids], padding_value=0, batch_first=True).to(device)
             attention_mask = input_ids > 0
+            pooling_matrix = create_pooler_matrix(input_ids, word_idxs, pool_type="head").to(device)
 
             preds = model.predict(
                 input_ids=input_ids,

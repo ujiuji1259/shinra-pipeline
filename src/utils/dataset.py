@@ -57,16 +57,18 @@ def find_word_alignment(tokens):
             word_idxs.append(idx)
         sub2word[idx] = len(word_idxs) - 1
 
+    # add word_idx for end offset
+    if len(tokens) > 0:
+        word_idxs.append(len(tokens))
+        sub2word[len(tokens)] = len(word_idxs) - 1
+
     return word_idxs, sub2word
 
 
 class ShinraData(object):
-    def __init__(self, attributes_path, params={}):
-        with open(attributes_path, "rb") as f:
-            self.attributes = pickle.load(f)
-        self.attr2idx = {}
-        for key, value in self.attributes.items():
-            self.attr2idx[key] = {word: idx for idx, word in enumerate(value)}
+    def __init__(self, attributes, params={}):
+        self.attributes = attributes
+        self.attr2idx = {attr: idx for idx, attr in enumerate(self.attributes)}
 
         self.page_id = None
         self.page_title = None
@@ -76,56 +78,15 @@ class ShinraData(object):
         self.word_alignments = None
         self.sub2word = None
         self.text_offsets = None
+        self.valid_line_ids = None
         self.nes = None
 
         for key, value in params.items():
             setattr(self, key, value)
 
-        if self.category is not None:
-            self.attributes = self.attributes[self.category]
-            self.attr2idx = self.attr2idx[self.category]
-
-    @classmethod
-    def from_one_doc_json(
-        cls,
-        attributes_path=None,
-        input_path=None,
-        tokenizer=None,
-    ):
-        with open(input_path, "r") as f:
-            data = json.load(f)
-        """
-        data = {
-            "page_id": page_id,
-            "page_title": title,
-            "category": category,
-            "plain_text":
-        }
-        """
-        tokens = []
-        text_offsets = []
-        sub2words = []
-        word_alignments = []
-        for sent in data["plain_text"]:
-            subwords, offset = tokenize_sent(sent, tokenizer)
-            word_alignment, sub2word = find_word_alignment(subwords)
-
-            tokens.append(subwords)
-            text_offsets.append(offset)
-            sub2words.append(sub2word)
-            word_alignments.append(word_alignment)
-
-        data["tokens"] = tokens
-        data["word_alignments"] = word_alignments
-        data["sub2word"] = sub2words
-        data["text_offsets"] = text_offsets
-
-        return cls(attributes_path, params=data)
-
     @classmethod
     def from_shinra2020_format(
         cls,
-        attributes_path=None,
         input_path=None):
 
         input_path = Path(input_path)
@@ -134,10 +95,23 @@ class ShinraData(object):
         anns = load_annotation(input_path / f"{category}_dist.json")
         vocab = load_vocab(input_path / "vocab.txt")
 
+        # create attributes
+        if (input_path / "attributes.txt").exists():
+            with open(input_path / "attributes.txt", "r") as f:
+                attributes = [attr for attr in f.read().split("\n") if attr != '']
+        else:
+            attributes = set()
+            for page_id, ann in anns.items():
+                attributes.update([a["attribute"] for a in ann if "attribute" in a])
+            attributes = list(attributes)
+            with open(input_path / "attributes.txt", "w") as f:
+                f.write("\n".join(attributes))
+
         docs = []
         for token_file in tqdm(input_path.glob("tokens/*.txt")):
             page_id = int(token_file.stem)
             tokens, text_offsets = load_tokens(token_file, vocab)
+            valid_line_ids = [idx for idx, token in enumerate(tokens) if len(token) > 0]
 
             # find title
             title = "".join([t[2:] if t.startswith("##") else t for t in tokens[4]])
@@ -157,29 +131,21 @@ class ShinraData(object):
                 "text_offsets": text_offsets,
                 "word_alignments": word_alignments,
                 "sub2word": sub2word,
+                "valid_line_ids": valid_line_ids,
             }
 
             if page_id in anns:
                 data["nes"] = anns[page_id]
 
-            docs.append(cls(attributes_path, params=data))
-
-        return docs
-
-    def add_linkpage(self, pages):
-        for ne, page in zip(self.nes, pages):
-            ne["link_page_id"] = int(page)
+            yield cls(attributes, params=data)
 
     # iobs = [sents1, sents2, ...]
     # sents1 = [[iob1_attr1, iob2_attr1, ...], [iob1_attr2, iob2_attr2, ...], ...]
-    def add_nes_from_iob(self, iobs, valid_line_ids=None):
+    def add_nes_from_iob(self, iobs):
+        assert len(iobs) == len(self.valid_line_ids), f"{len(iobs)}, {len(self.valid_line_ids)}"
         self.nes = []
-        if valid_line_ids is None:
-            ite = enumerate(iob)
-        else:
-            ite = zip(valid_line_ids, iobs)
 
-        for line_id, sent_iob in ite:
+        for line_id, sent_iob in zip(self.valid_line_ids, iobs):
             word2subword = self.word_alignments[line_id]
             tokens = self.tokens[line_id]
             text_offsets = self.text_offsets[line_id]
@@ -187,6 +153,27 @@ class ShinraData(object):
                 ne = {}
                 iob = [0] + iob + [0]
                 for token_idx in range(1, len(iob)):
+                    if is_chunk_end(iob[token_idx-1], iob[token_idx]):
+                        assert ne != {}
+                        # token_idxは本来のものから+2されているので，word2subwordはneの外のはじめのtoken_id
+                        end_offset = len(tokens) if token_idx - 1 >= len(word2subword) else word2subword[token_idx-1]
+                        # end_offset = len(tokens) if token_idx >= len(word2subword) else word2subword[token_idx-1]
+                        ne["token_offset"]["end"] = {
+                            "line_id": line_id,
+                            "offset": end_offset
+                        }
+                        ne["token_offset"]["text"] = " ".join(tokens[ne["token_offset"]["start"]["offset"]:ne["token_offset"]["end"]["offset"]])
+
+                        ne["text_offset"]["end"] = {
+                            "line_id": line_id,
+                            "offset": text_offsets[end_offset-1][1]
+                        }
+                        ne["page_id"] = self.page_id
+                        ne["title"] = self.page_title
+
+                        self.nes.append(ne)
+                        ne = {}
+
                     if is_chunk_start(iob[token_idx-1], iob[token_idx]):
                         ne["attribute"] = attr
                         ne["token_offset"] = {
@@ -202,62 +189,26 @@ class ShinraData(object):
                             }
                         }
 
-                    if is_chunk_end(iob[token_idx-1], iob[token_idx]):
-                        assert ne != {}
-                        # token_idxは本来のものから+1されているので，word2subwordはneの外のはじめのtoken_id
-                        end_offset = len(tokens) if token_idx == len(word2subword) else word2subword[token_idx]
-                        ne["token_offset"]["end"] = {
-                            "line_id": line_id,
-                            "offset": end_offset
-                        }
-                        ne["token_offset"]["text"] = " ".join(tokens[ne["token_offset"]["start"]["offset"]:ne["token_offset"]["end"]["offset"]])
-
-                        ne["text_offset"]["end"] = {
-                            "line_id": line_id,
-                            "offset": text_offsets[end_offset-1]
-                        }
-
-                        self.nes.append(ne)
-                        ne = {}
-
-    @property
-    def entity_linking_inputs(self):
-        dataset = []
-        for ne in self.nes:
-            mention = ne['text_offset']['text']
-            start_line, start_off = ne['token_offset']['start']['line_id'], ne['token_offset']['start']['offset']
-            end_line, end_off = ne['token_offset']['end']['line_id'], ne['token_offset']['end']['offset']
-
-            if start_line == end_line:
-                mention_tokens = self.tokens[start_line][start_off:end_off]
-                left_context = [token for tokens in self.tokens[:start_line] for token in tokens] + self.tokens[start_line][:start_off]
-                right_context = self.tokens[start_line][end_off:] + [token for tokens in self.tokens[start_line+1:] for token in tokens]
-            else:
-                mention_tokens = self.tokens[start_line][start_off:] + self.tokens[end_line][:end_off]
-                left_context = [token for tokens in self.tokens[:start_line] for token in tokens] + self.tokens[start_line][:start_off]
-                right_context = self.tokens[end_line][end_off:] + [token for tokens in self.tokens[end_line+1:] for token in tokens]
-
-            dataset.append({
-                "left_context": left_context,
-                "mention": mention_tokens,
-                "right_context": right_context,
-                "link_page_id": int(ne["link_page_id"]) if "link_page_id" in ne else None,
-                "annotation": ne
-            })
-
-        return dataset
 
     @property
     def ner_inputs(self):
-        outputs = {}
+        outputs = []
+        iobs = self.iob if self.nes is not None else None
+        for idx in self.valid_line_ids:
+            sent = {
+                "tokens": self.tokens[idx],
+                "word_idxs": self.word_alignments[idx],
+                "labels": iobs[idx] if iobs is not None else None
+            }
+            outputs.append(sent)
 
-        outputs["input_ids"] = self.tokens
-        outputs["word_idxs"] = self.word_alignments.copy()
+        # outputs["input_ids"] = self.tokens
+        # outputs["word_idxs"] = self.word_alignments.copy()
 
-        if self.nes is not None:
-            outputs["labels"] = self.iob
-        else:
-            outputs["labels"] = [None for i in range(len(self.tokens))]
+        # if self.nes is not None:
+        #     outputs["labels"] = self.iob
+        # else:
+        #     outputs["labels"] = [None for i in range(len(self.tokens))]
 
         return outputs
 
@@ -284,7 +235,7 @@ class ShinraData(object):
 
         {"O": 0, "B": 1, "I": 2}
         """
-        iobs = [[["O" for _ in range(len(tokens))] for _ in range(len(self.attributes))] for tokens in self.word_alignments]
+        iobs = [[["O" for _ in range(len(tokens)-1)] for _ in range(len(self.attributes))] for tokens in self.word_alignments]
         for ne in self.nes:
             if "token_offset" not in ne:
                 continue
@@ -294,6 +245,7 @@ class ShinraData(object):
             end_line = int(ne["token_offset"]["end"]["line_id"])
             end_offset = int(ne["token_offset"]["end"]["offset"])
 
+            # 文を跨いだentityは除外
             if start_line != end_line:
                 continue
 

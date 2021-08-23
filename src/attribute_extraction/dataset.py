@@ -51,8 +51,8 @@ class NerDataset(Dataset):
 
         labels = self.data[item]["labels"]
         if labels is not None:
-            # truncate label using zip(_, word_idxs)
-            labels = [[self.label2id[l] for l, _ in zip(label, word_idxs)] for label in labels]
+            # truncate label using zip(_, word_idxs[:-1]), word_idxs[-1] is not valid idx (for end offset)
+            labels = [[self.label2id[l] for l, _ in zip(label, word_idxs[:-1])] for label in labels]
 
         return input_ids, word_idxs, labels
 
