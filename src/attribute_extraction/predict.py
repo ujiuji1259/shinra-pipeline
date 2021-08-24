@@ -38,6 +38,7 @@ def predict(model, dataset, device):
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 word_idxs=word_idxs,
+                pooling_matrix=pooling_matrix
             )
 
             total_preds.append(preds)
