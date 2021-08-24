@@ -14,9 +14,10 @@ import apex
 from apex import amp
 import numpy as np
 
-from entity_linking.dataset import my_collate_fn, my_collate_fn_json
-from entity_linking.searcher import NearestNeighborSearch
-from utils.util import get_scheduler, to_fp16, save_model, to_parallel, calculate_recall
+from dataset import my_collate_fn, my_collate_fn_json, MentionDataset
+from searcher import NearestNeighborSearch
+from utils.util import get_scheduler, to_fp16, save_model, to_parallel
+from utils.util import calculate_recall
 
 
 class BertBiEncoder(nn.Module):
@@ -177,6 +178,7 @@ class BertCandidateGenerator(object):
         index = np.array(index)
         np.save(index_output_file, index)
 
+
     def train_hard_negative(self,
           mention_dataset,
           candidate_dataset,
@@ -233,14 +235,16 @@ class BertCandidateGenerator(object):
               fp16_opt_level=None,
               parallel=False,
               hard_negative=False,
+              args=None,
+              mention_tokenizer=None,
              ):
 
 
         if inbatch:
 
             optimizer = optim.Adam(self.model.parameters(), lr=lr)
-            scheduler = get_scheduler(
-                batch_size, grad_acc_step, epochs, warmup_propotion, optimizer, traindata_size)
+            # scheduler = get_scheduler(
+            #     batch_size, grad_acc_step, epochs, warmup_propotion, optimizer, traindata_size)
 
             if fp16:
                 assert fp16_opt_level is not None
@@ -250,6 +254,22 @@ class BertCandidateGenerator(object):
                 self.model = to_parallel(self.model)
 
             for e in range(epochs):
+                if hard_negative and args is not None:
+                    self.build_searcher(candidate_dataset, max_title_len=args.max_title_len, max_desc_len=args.max_desc_len)
+                    self.save_traindata_with_negative_samples(
+                        mention_dataset,
+                        args.path_for_NN + f"/{e}.jsonl",
+                        args.path_for_NN + f"/{e}_index.npy",
+                        batch_size=batch_size,
+                        max_ctxt_len=args.max_ctxt_len,
+                        max_title_len=args.max_title_len,
+                        max_desc_len=args.max_desc_len,
+                        traindata_size=args.traindata_size,
+                        NNs=100,
+                    )
+                    index = np.load(args.path_for_NN + f"/{e}_index.npy")
+                    mention_dataset = MentionDataset(args.mention_dataset, index, mention_tokenizer, preprocessed=args.mention_preprocessed, return_json=True, without_context=args.without_context)
+
                 #mention_batch = mention_dataset.batch(batch_size=batch_size, random_bsz=random_bsz, max_ctxt_len=max_ctxt_len)
                 dataloader = DataLoader(mention_dataset, batch_size=batch_size, shuffle=True, collate_fn=my_collate_fn_json, num_workers=2)
                 bar = tqdm(total=traindata_size)
@@ -268,23 +288,48 @@ class BertCandidateGenerator(object):
 
                     pages = list(labels[:])
                     if hard_negative:
+                        hard_pages = []
                         for label, line in zip(labels, lines):
+                            _hard_pages = []
                             for i in line["nearest_neighbors"]:
                                 if str(i) == label:
                                     break
-                                pages.append(str(i))
+                                if len(_hard_pages) > 10:
+                                    break
+                                _hard_pages.append(str(i))
+                            hard_pages.extend(_hard_pages)
 
-                    candidate_input_ids = candidate_dataset.get_pages(pages, max_title_len=max_title_len, max_desc_len=max_desc_len)
-                    candidate_inputs = pad_sequence([torch.LongTensor(token)
-                                                    for token in candidate_input_ids], padding_value=0).t().to(self.device)
-                    candidate_mask = candidate_inputs > 0
-                    candidate_reps = self.model(candidate_inputs, candidate_mask, is_mention=False)
+                        candidate_input_ids = candidate_dataset.get_pages(pages, max_title_len=max_title_len, max_desc_len=max_desc_len)
+                        candidate_inputs = pad_sequence([torch.LongTensor(token)
+                                                        for token in candidate_input_ids], padding_value=0).t().to(self.device)
+                        candidate_mask = candidate_inputs > 0
+                        candidate_reps = self.model(candidate_inputs, candidate_mask, is_mention=False)
+                        scores = mention_reps.mm(candidate_reps.t())
 
-                    scores = mention_reps.mm(candidate_reps.t())
-                    accuracy = self.calculate_inbatch_accuracy(scores)
+                        hard_candidate_input_ids = candidate_dataset.get_pages(hard_pages, max_title_len=max_title_len, max_desc_len=max_desc_len)
+                        hard_candidate_inputs = pad_sequence([torch.LongTensor(token)
+                                                        for token in hard_candidate_input_ids], padding_value=0).t().to(self.device)
+                        hard_candidate_mask = hard_candidate_inputs > 0
+                        hard_candidate_reps = self.model(hard_candidate_inputs, hard_candidate_mask, is_mention=False).view(-1, 10, 768)
+                        hard_scores = torch.bmm(mention_reps.unsqueeze(1), torch.transpose(hard_candidate_reps, 1, 2)).unsqueeze(1)
 
-                    target = torch.LongTensor(torch.arange(scores.size(0))).to(self.device)
-                    loss = F.cross_entropy(scores, target, reduction="mean")
+                        scores = torch.cat([scores, hard_scores], dim=-1)
+                        accuracy = self.calculate_inbatch_accuracy(scores)
+
+                        target = torch.LongTensor(torch.arange(scores.size(0))).to(self.device)
+                        loss = F.cross_entropy(scores, target, reduction="mean")
+                    else:
+                        candidate_input_ids = candidate_dataset.get_pages(pages, max_title_len=max_title_len, max_desc_len=max_desc_len)
+                        candidate_inputs = pad_sequence([torch.LongTensor(token)
+                                                        for token in candidate_input_ids], padding_value=0).t().to(self.device)
+                        candidate_mask = candidate_inputs > 0
+                        candidate_reps = self.model(candidate_inputs, candidate_mask, is_mention=False)
+
+                        scores = mention_reps.mm(candidate_reps.t())
+                        accuracy = self.calculate_inbatch_accuracy(scores)
+
+                        target = torch.LongTensor(torch.arange(scores.size(0))).to(self.device)
+                        loss = F.cross_entropy(scores, target, reduction="mean")
 
                     if self.logger:
                         self.logger.debug("Accurac: %s", accuracy)
@@ -308,12 +353,12 @@ class BertCandidateGenerator(object):
                                 self.model.parameters(), max_grad_norm
                             )
                         optimizer.step()
-                        scheduler.step()
+                        # scheduler.step()
                         optimizer.zero_grad()
 
                         if self.logger:
                             self.logger.debug("Back propagation in step %s", step+1)
-                            self.logger.debug("LR: %s", scheduler.get_lr())
+                            # self.logger.debug("LR: %s", scheduler.get_lr())
 
                     if self.use_mlflow:
                         mlflow.log_metric("train loss", loss.item(), step=step)
