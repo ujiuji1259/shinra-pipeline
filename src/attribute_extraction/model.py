@@ -79,11 +79,12 @@ class BertForMultilabelNER(nn.Module):
 
         loss = None
         if labels is not None:
+            target_labels = [labels[:, attr_idx, :] for attr_idx in range(labels.size(1))]
             loss_fct = nn.CrossEntropyLoss(ignore_index=-1)
             loss = 0
 
-            for label, logit in zip(labels, logits):
-                loss += loss_fct(logit.view(-1, 3), label.view(-1)) / len(labels)
+            for label, logit in zip(target_labels, logits):
+                loss += loss_fct(logit.view(-1, 3), label.reshape(-1)) / len(target_labels)
 
         output = (logits, ) + outputs[2:]
         return ((loss,) + output) if loss is not None else output

@@ -23,7 +23,7 @@ from dataset import NerDataset, ner_collate_fn, create_batch_dataset_for_ner
 from model import BertForMultilabelNER, create_pooler_matrix
 from predict import predict
 
-device = "cuda:1" if torch.cuda.is_available() else "cpu"
+device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
 # seed固定
 
@@ -102,8 +102,10 @@ def train(model, train_dataset, valid_dataset, attributes, args):
             word_idxs = inputs["word_idxs"]
             labels = inputs["labels"]
 
-            labels = [pad_sequence([torch.tensor(l) for l in label], padding_value=-1, batch_first=True).to(device)
+            labels = [pad_sequence([torch.tensor(l) for l in label], padding_value=-1, batch_first=True)
                 for label in labels]
+            # for parallel
+            labels = torch.tensor([[labels[attr_idx][bsz].tolist() for attr_idx in range(len(labels))] for bsz in range(labels[0].size(0))]).to(device)
 
             input_ids = pad_sequence([torch.tensor(t) for t in input_ids], padding_value=0, batch_first=True).to(device)
             attention_mask = input_ids > 0
@@ -115,7 +117,7 @@ def train(model, train_dataset, valid_dataset, attributes, args):
                 labels=labels,
                 pooling_matrix=pooling_matrix)
 
-            loss = outputs[0]
+            loss = outputs[0].mean()
             loss.backward()
 
             total_loss += loss.item()
@@ -140,7 +142,8 @@ def train(model, train_dataset, valid_dataset, attributes, args):
         mlflow.log_metric("Valid F1", valid_f1, step=e)
 
         if early_stopping._score < valid_f1:
-            torch.save(model.state_dict(), args.model_path + f"{category}_best.model")
+            # torch.save(model.state_dict(), args.model_path + f"{category}_best.model")
+            save_model(model, args.model_path + f"{category}_best.model")
 
 
         if e + 1 > 30 and early_stopping.validate(valid_f1):
@@ -201,5 +204,6 @@ if __name__ == "__main__":
     mlflow.start_run()
     mlflow.log_params(vars(args))
     train(model, train_dataset, valid_dataset, attributes, args)
-    torch.save(model.state_dict(), args.model_path + f"{data_split.stem}_last.model")
+    # torch.save(model.state_dict(), args.model_path + f"{data_split.stem}_last.model")
+    save_model(model, args.model_path + f"{data_split.stem}_last.model")
     mlflow.end_run()

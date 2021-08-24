@@ -17,8 +17,9 @@ def ner_for_shinradata(model, tokenizer, shinra_dataset, device):
     return shinra_dataset
 
 
-def predict(model, dataset, device):
-    model.eval()
+def predict(input_model, dataset, device):
+    input_model.eval()
+    model = input_model.module if hasattr(input_model, "module") else input_model
     dataloader = DataLoader(dataset, batch_size=8, collate_fn=ner_collate_fn)
 
     total_preds = []
@@ -40,6 +41,7 @@ def predict(model, dataset, device):
                 word_idxs=word_idxs,
                 pooling_matrix=pooling_matrix
             )
+            print(preds)
 
             total_preds.append(preds)
             total_trues.append(labels if labels is not None else [None])
