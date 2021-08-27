@@ -268,7 +268,8 @@ class BertCandidateGenerator(object):
                         NNs=100,
                     )
                     index = np.load(args.path_for_NN + f"/{e}_index.npy")
-                    mention_dataset = MentionDataset(args.mention_dataset, index, mention_tokenizer, preprocessed=args.mention_preprocessed, return_json=True, without_context=args.without_context)
+                    mention_dataset = MentionDataset(args.path_for_NN + f"/{e}.jsonl", index, mention_tokenizer, preprocessed=args.mention_preprocessed, return_json=True, without_context=args.without_context)
+                    # mention_dataset = MentionDataset(args.mention_dataset, index, mention_tokenizer, preprocessed=args.mention_preprocessed, return_json=True, without_context=args.without_context)
 
                 #mention_batch = mention_dataset.batch(batch_size=batch_size, random_bsz=random_bsz, max_ctxt_len=max_ctxt_len)
                 dataloader = DataLoader(mention_dataset, batch_size=batch_size, shuffle=True, collate_fn=my_collate_fn_json, num_workers=2)
