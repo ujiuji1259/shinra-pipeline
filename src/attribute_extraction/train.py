@@ -5,7 +5,7 @@ import json
 
 from torch.optim.optimizer import Optimizer
 
-sys.path.append("/home/is/ujiie/shinra-pipeline/src")
+sys.path.append("/workspace")
 
 import torch
 from torch.utils.data import DataLoader, Subset
