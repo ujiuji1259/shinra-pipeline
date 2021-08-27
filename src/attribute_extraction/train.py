@@ -2,12 +2,16 @@ import argparse
 import sys
 from pathlib import Path
 import json
+import random
+import os
 
 from torch.optim.optimizer import Optimizer
 
 sys.path.append("/workspace")
 
+from apex import amp
 import torch
+import numpy as np
 from torch.utils.data import DataLoader, Subset
 from torch.nn.utils.rnn import pad_sequence
 import torch.optim as optim
@@ -15,10 +19,9 @@ from transformers import AutoTokenizer, AutoModel
 from tqdm import tqdm
 from seqeval.metrics import f1_score, classification_report
 import mlflow
-from transformers.trainer_utils import set_seed
 
 from utils.dataset import ShinraData
-from utils.util import get_scheduler, to_parallel, save_model, decode_iob
+from utils.util import get_scheduler, to_parallel, save_model, decode_iob, to_fp16
 from dataset import NerDataset, ner_collate_fn, create_batch_dataset_for_ner
 from model import BertForMultilabelNER, create_pooler_matrix
 from predict import predict
@@ -26,6 +29,15 @@ from predict import predict
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
 # seed固定
+def set_seed(seed):
+    random.seed(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 class EarlyStopping():
    def __init__(self, patience=0, verbose=0):
@@ -90,6 +102,10 @@ def train(model, train_dataset, valid_dataset, attributes, args):
     if args.parallel:
         model = to_parallel(model)
 
+    if args.fp16:
+        assert args.fp16_opt_level is not None
+        model, optimizer = to_fp16(model, optimizer, args.fp16_opt_level)
+
     losses = []
     for e in range(args.epoch):
         train_dataloader = DataLoader(train_dataset, batch_size=args.bsz, collate_fn=ner_collate_fn, shuffle=True)
@@ -118,6 +134,11 @@ def train(model, train_dataset, valid_dataset, attributes, args):
                 pooling_matrix=pooling_matrix)
 
             loss = outputs[0].mean()
+            if args.fp16:
+                with amp.scale_loss(loss, optimizer) as scaled_loss:
+                    scaled_loss.backward()
+            else:
+                loss.backward()
             loss.backward()
 
             total_loss += loss.item()
@@ -128,9 +149,17 @@ def train(model, train_dataset, valid_dataset, attributes, args):
             bar.update(args.bsz)
 
             if (step + 1) % args.grad_acc == 0:
-                torch.nn.utils.clip_grad_norm_(
-                    model.parameters(), args.grad_clip
-                )
+                if args.fp16:
+                    torch.nn.utils.clip_grad_norm_(
+                        amp.master_params(optimizer), args.grad_clip
+                    )
+                else:
+                    torch.nn.utils.clip_grad_norm_(
+                        model.parameters(), args.grad_clip
+                    )
+                # torch.nn.utils.clip_grad_norm_(
+                #     model.parameters(), args.grad_clip
+                # )
                 optimizer.step()
                 # scheduler.step()
                 optimizer.zero_grad()
@@ -146,7 +175,7 @@ def train(model, train_dataset, valid_dataset, attributes, args):
             save_model(model, args.model_path + f"{category}_best.model")
 
 
-        if e + 1 > 30 and early_stopping.validate(valid_f1):
+        if early_stopping.validate(valid_f1) and e + 1 > 30:
             break
 
 
