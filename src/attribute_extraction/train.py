@@ -74,6 +74,8 @@ def parse_arg():
     parser.add_argument("--warmup", type=float, help="Specify attribute_list path in SHINRA2020")
     parser.add_argument("--grad_clip", type=float, help="Specify attribute_list path in SHINRA2020")
     parser.add_argument("--parallel", action="store_true", help="Specify attribute_list path in SHINRA2020")
+    parser.add_argument("--fp16", action="store_true", help="whether using inbatch negative")
+    parser.add_argument('--fp16_opt_level', type=str, default="O1")
     parser.add_argument("--seed", type=int, help="Specify attribute_list path in SHINRA2020")
     parser.add_argument("--note", type=str, help="Specify attribute_list path in SHINRA2020")
 
