@@ -2,12 +2,15 @@ import argparse
 import sys
 from pathlib import Path
 import json
+import random
+import os
 
 from torch.optim.optimizer import Optimizer
 
 sys.path.append("/home/is/ujiie/shinra-pipeline/src")
 
 import torch
+import numpy as np
 from torch.utils.data import DataLoader, Subset
 from torch.nn.utils.rnn import pad_sequence
 import torch.optim as optim
@@ -15,7 +18,6 @@ from transformers import AutoTokenizer, AutoModel
 from tqdm import tqdm
 from seqeval.metrics import f1_score, classification_report
 import mlflow
-from transformers.trainer_utils import set_seed
 
 from utils.dataset import ShinraData
 from utils.util import get_scheduler, to_parallel, save_model, decode_iob
@@ -26,6 +28,15 @@ from predict import predict
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
 # seed固定
+def set_seed(seed):
+    random.seed(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 class EarlyStopping():
    def __init__(self, patience=0, verbose=0):
@@ -146,7 +157,7 @@ def train(model, train_dataset, valid_dataset, attributes, args):
             save_model(model, args.model_path + f"{category}_best.model")
 
 
-        if e + 1 > 30 and early_stopping.validate(valid_f1):
+        if early_stopping.validate(valid_f1) and e + 1 > 30:
             break
 
 

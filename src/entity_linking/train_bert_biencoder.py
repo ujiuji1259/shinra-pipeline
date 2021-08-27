@@ -1,5 +1,7 @@
 #import cProfile
 import sys
+import random
+import os
 sys.path.append('../')
 from line_profiler import LineProfiler
 import argparse
@@ -18,6 +20,16 @@ from bert_generator import BertBiEncoder, BertCandidateGenerator
 from utils.util import to_parallel, save_model
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
+
+def set_seed(seed):
+    random.seed(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
 def parse_args():
