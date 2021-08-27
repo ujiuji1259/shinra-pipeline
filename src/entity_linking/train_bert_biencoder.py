@@ -9,10 +9,11 @@ import numpy as np
 import mlflow
 import torch
 from transformers import AutoTokenizer, AutoModel
+from transformers.trainer_utils import set_seed
 import apex
 from apex import amp
 
-from dataloader import MentionDataset, CandidateDataset
+from dataset import MentionDataset, CandidateDataset
 from bert_generator import BertBiEncoder, BertCandidateGenerator
 from utils.util import to_parallel, save_model
 
@@ -27,6 +28,7 @@ def parse_args():
     parser.add_argument("--mention_dataset", type=str, help="mention dataset path")
     parser.add_argument("--mention_index", type=str, help="mention dataset path")
     parser.add_argument("--candidate_dataset", type=str, help="candidate dataset path")
+    parser.add_argument("--path_for_NN", type=str, help="candidate dataset path")
     parser.add_argument("--model_path", type=str, help="model save path")
     parser.add_argument("--mention_preprocessed", action="store_true", help="whether mention_dataset is preprocessed")
     parser.add_argument("--candidate_preprocessed", action="store_true", help="whether candidate_dataset is preprocessed")
@@ -39,6 +41,7 @@ def parse_args():
     parser.add_argument("--bsz", type=int, help="batch size")
     parser.add_argument("--model_save_interval", default=None, type=int, help="batch size")
     parser.add_argument("--random_bsz", type=int, help="data size loaded at one time")
+    parser.add_argument("--seed", type=int, help="data size loaded at one time")
     parser.add_argument("--max_ctxt_len", type=int, help="maximum context length")
     parser.add_argument("--max_title_len", type=int, help="maximum title length")
     parser.add_argument("--max_desc_len", type=int, help="maximum description length")
@@ -52,6 +55,7 @@ def parse_args():
     parser.add_argument("--log_file", type=str, help="whether using inbatch negative")
 
     args = parser.parse_args()
+    set_seed(args.seed)
 
     if args.mlflow:
         mlflow.start_run()
@@ -122,12 +126,15 @@ def main():
             fp16=args.fp16,
             fp16_opt_level=args.fp16_opt_level,
             parallel=args.parallel,
-            hard_negative=args.hard_negative
+            hard_negative=args.hard_negative,
+            args=args,
+            mention_tokenizer=mention_tokenizer,
         )
     except KeyboardInterrupt:
         pass
 
     save_model(model.model, args.model_path)
+    #torch.save(model.model.state_dict(), args.model_path)
 
     if args.mlflow:
         mlflow.end_run()
@@ -141,4 +148,3 @@ if __name__ == "__main__":
     #cProfile.run('main()', filename="main.prof")
     """
     main()
-
