@@ -7,7 +7,7 @@ import os
 
 from torch.optim.optimizer import Optimizer
 
-sys.path.append("/home/is/ujiie/shinra-pipeline/src")
+sys.path.append("/workspace")
 
 from apex import amp
 import torch
