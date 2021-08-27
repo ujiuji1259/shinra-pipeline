@@ -17,6 +17,8 @@ do
             --grad_acc 1 \
             --warmup 0.1 \
             --grad_clip 1.0 \
+            --fp16 \
+            --fp16_opt_level O1 \
             --seed 42 \
             --note "${category} with 2 output layers without warmupstep fix"
     fi
