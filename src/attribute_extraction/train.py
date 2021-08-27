@@ -141,7 +141,7 @@ def train(model, train_dataset, valid_dataset, attributes, args):
                     scaled_loss.backward()
             else:
                 loss.backward()
-            loss.backward()
+            # loss.backward()
 
             total_loss += loss.item()
             mlflow.log_metric("Trian batch loss", loss.item(), step=(e+1) * step)
