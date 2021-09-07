@@ -20,6 +20,7 @@ from bert_generator import BertBiEncoder, BertCandidateGenerator
 from utils.util import to_parallel, save_model
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
+os.environ["CUDA_VISIBLE_DEVICES"]="0,1"
 
 def set_seed(seed):
     random.seed(seed)
@@ -34,17 +35,26 @@ def set_seed(seed):
 
 def parse_args():
     parser = argparse.ArgumentParser()
+    # for model
     parser.add_argument("--model_name", type=str, help="bert-name used for biencoder")
     parser.add_argument("--load_model_path", type=str, help="bert-name used for biencoder")
-    parser.add_argument("--hard_negative", action="store_true", help="bert-name used for biencoder")
+    parser.add_argument("--model_path", type=str, help="model save path")
+    parser.add_argument("--builder_gpu", action="store_true", help="model save path")
+    parser.add_argument("--faiss_gpu_id", type=int, help="model save path")
+
+    # for dataset
     parser.add_argument("--mention_dataset", type=str, help="mention dataset path")
     parser.add_argument("--mention_index", type=str, help="mention dataset path")
     parser.add_argument("--candidate_dataset", type=str, help="candidate dataset path")
-    parser.add_argument("--path_for_NN", type=str, help="candidate dataset path")
-    parser.add_argument("--model_path", type=str, help="model save path")
     parser.add_argument("--mention_preprocessed", action="store_true", help="whether mention_dataset is preprocessed")
     parser.add_argument("--candidate_preprocessed", action="store_true", help="whether candidate_dataset is preprocessed")
-    parser.add_argument("--inbatch", action="store_true", help="whether using inbatch negative")
+
+    # for hard negative
+    parser.add_argument("--hard_negative", action="store_true", help="bert-name used for biencoder")
+    parser.add_argument("--num_negs", type=int, help="bert-name used for biencoder")
+    parser.add_argument("--path_for_NN", type=str, help="candidate dataset path")
+
+    # training configs
     parser.add_argument("--epochs", type=int, help="epochs")
     parser.add_argument("--lr", type=float, help="learning rate")
     parser.add_argument("--warmup_propotion", type=float, help="learning rate")
@@ -122,7 +132,6 @@ def main():
         model.train(
             mention_dataset,
             candidate_dataset,
-            inbatch=args.inbatch,
             lr=args.lr,
             batch_size=args.bsz,
             random_bsz=args.random_bsz,
@@ -145,7 +154,7 @@ def main():
     except KeyboardInterrupt:
         pass
 
-    save_model(model.model, args.model_path)
+    save_model(model.model, args.model_path + f'_last.model')
     #torch.save(model.model.state_dict(), args.model_path)
 
     if args.mlflow:

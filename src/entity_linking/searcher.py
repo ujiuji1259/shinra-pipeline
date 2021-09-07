@@ -4,7 +4,7 @@ import numpy as np
 import faiss
 
 class NearestNeighborSearch(object):
-    def __init__(self, dim, metric="dot", use_gpu=False):
+    def __init__(self, dim, metric="dot", use_gpu=False, gpu_id=0):
         self.dim = dim
         self.use_gpu = use_gpu
         if metric == "dot":
@@ -14,7 +14,7 @@ class NearestNeighborSearch(object):
 
         if self.use_gpu:
             res = faiss.StandardGpuResources()
-            self.index = faiss.index_cpu_to_gpu(res, 0, self.index)
+            self.index = faiss.index_cpu_to_gpu(res, gpu_id, self.index)
 
         self.page_ids = []
 
