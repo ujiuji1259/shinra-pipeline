@@ -7,7 +7,7 @@ import os
 
 from torch.optim.optimizer import Optimizer
 
-sys.path.append("/workspace")
+sys.path.append("../")
 
 from apex import amp
 import torch
@@ -26,7 +26,7 @@ from dataset import NerDataset, ner_collate_fn, create_batch_dataset_for_ner
 from model import BertForMultilabelNER, create_pooler_matrix
 from predict import predict
 
-device = "cuda:0" if torch.cuda.is_available() else "cpu"
+device = "cuda:1" if torch.cuda.is_available() else "cpu"
 
 # seed固定
 def set_seed(seed):
@@ -101,16 +101,16 @@ def train(model, train_dataset, valid_dataset, attributes, args):
 
     category = Path(args.data_split).stem
 
-    if args.parallel:
-        model = to_parallel(model)
-
     if args.fp16:
         assert args.fp16_opt_level is not None
         model, optimizer = to_fp16(model, optimizer, args.fp16_opt_level)
 
+    if args.parallel:
+        model = to_parallel(model)
+
     losses = []
     for e in range(args.epoch):
-        train_dataloader = DataLoader(train_dataset, batch_size=args.bsz, collate_fn=ner_collate_fn, shuffle=True)
+        train_dataloader = DataLoader(train_dataset, batch_size=args.bsz, collate_fn=ner_collate_fn, shuffle=True, num_workers=2)
         bar = tqdm(total=len(train_dataset))
 
         total_loss = 0
@@ -174,7 +174,7 @@ def train(model, train_dataset, valid_dataset, attributes, args):
 
         if early_stopping._score < valid_f1:
             # torch.save(model.state_dict(), args.model_path + f"{category}_best.model")
-            save_model(model, args.model_path + f"{category}_best.model")
+            save_model(model, args.model_path + f"/{category}_best.model")
 
 
         if early_stopping.validate(valid_f1) and e + 1 > 30:
@@ -236,5 +236,5 @@ if __name__ == "__main__":
     mlflow.log_params(vars(args))
     train(model, train_dataset, valid_dataset, attributes, args)
     # torch.save(model.state_dict(), args.model_path + f"{data_split.stem}_last.model")
-    save_model(model, args.model_path + f"{data_split.stem}_last.model")
+    save_model(model, args.model_path + f"/{data_split.stem}_last.model")
     mlflow.end_run()

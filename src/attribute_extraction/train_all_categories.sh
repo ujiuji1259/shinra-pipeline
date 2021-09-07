@@ -6,13 +6,14 @@ do
     cat=`dirname $fn | sed 's/.*\/\([^/.]*\)$/\1/'`
     if printf '%s\n' "${all_categories[@]}" | grep -qx $cat > /dev/null >&2; then
         category=`basename $fn`
+        echo $category
         python train.py \
             --bert_name cl-tohoku/bert-base-japanese \
             --input_path $fn \
             --data_split $DATA_SPLIT$category \
             --model_path "${MODEL_PATH}" \
             --lr 1e-5 \
-            --bsz 16 \
+            --bsz 32 \
             --epoch 50 \
             --grad_acc 1 \
             --warmup 0.1 \

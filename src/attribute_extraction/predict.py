@@ -41,7 +41,6 @@ def predict(input_model, dataset, device):
                 word_idxs=word_idxs,
                 pooling_matrix=pooling_matrix
             )
-            print(preds)
 
             total_preds.append(preds)
             total_trues.append(labels if labels is not None else [None])
