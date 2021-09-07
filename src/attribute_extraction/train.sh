@@ -1,9 +1,11 @@
-CUDA_VISIBLE_DEVICES=0,1
-python train.py \
+DATA_PATH=/data
+MODEL_PATH=/models
+
+CUDA_VISIBLE_DEVICES=0,1 python train.py \
     --bert_name cl-tohoku/bert-base-japanese \
-    --input_path /home/is/ujiie/shinra/Event/Event_Other \
-    --data_split /home/is/ujiie/shinra/data_split/Event_Other \
-    --model_path /home/is/ujiie/shinra-pipeline/models/ \
+    --input_path ${DATA_PATH}/Event/Event_Other \
+    --data_split ${DATA_PATH}/data_split/Event_Other \
+    --model_path $MODEL_PATH/ \
     --parallel \
     --lr 1e-5 \
     --bsz 32 \

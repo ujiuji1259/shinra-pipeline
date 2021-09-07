@@ -73,7 +73,6 @@ def parse_arg():
     parser.add_argument("--bert_name", type=str, help="Specify BERT name")
     parser.add_argument("--input_path", type=str, help="Specify input path in SHINRA2020")
     parser.add_argument("--model_path", type=str, help="Specify attribute_list path in SHINRA2020")
-    parser.add_argument("--attribute_path", type=str, help="Specify attribute_list path in SHINRA2020")
     parser.add_argument("--output_path", type=str, help="Specify attribute_list path in SHINRA2020")
     parser.add_argument("--bsz", type=int, help="Specify attribute_list path in SHINRA2020")
     parser.add_argument("--parallel", action="store_true", help="Specify attribute_list path in SHINRA2020")
@@ -93,10 +92,8 @@ if __name__ == "__main__":
     tokenizer = AutoTokenizer.from_pretrained(args.bert_name)
 
     # dataset = [ShinraData(), ....]
-    dataset = ShinraData.from_shinra2020_format(Path(args.input_path), attribute_path=args.attribute_path)
-
-    with open(args.attribute_path, "r") as f:
-        attributes = [attr for attr in f.read().split("\n") if attr != '']
+    dataset = ShinraData.from_shinra2020_format(Path(args.input_path), get_attributes=True)
+    attributes = next(dataset)
 
     model = BertForMultilabelNER(bert, len(attributes)).to(device)
     model.load_state_dict(torch.load(args.model_path))

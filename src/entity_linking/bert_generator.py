@@ -186,46 +186,28 @@ class BertCandidateGenerator(object):
     def train(self,
               mention_dataset,
               candidate_dataset,
-              lr=1e-5,
-              batch_size=32,
-              random_bsz=100000,
-              max_ctxt_len=32,
-              max_title_len=50,
-              max_desc_len=100,
-              traindata_size=1000000,
-              model_save_interval=10000,
-              grad_acc_step=1,
-              max_grad_norm=1.0,
-              epochs=1,
-              warmup_propotion=0.1,
-              fp16=False,
-              fp16_opt_level=None,
-              parallel=False,
-              hard_negative=False,
               args=None,
               mention_tokenizer=None,
              ):
 
-        optimizer = optim.Adam(self.model.parameters(), lr=lr)
-        # scheduler = get_scheduler(
-        #     batch_size, grad_acc_step, epochs, warmup_propotion, optimizer, traindata_size)
+        optimizer = optim.Adam(self.model.parameters(), lr=args.lr)
 
-        if fp16:
-            assert fp16_opt_level is not None
-            self.model, optimizer = to_fp16(self.model, optimizer, fp16_opt_level)
+        if args.fp16:
+            assert args.fp16_opt_level is not None
+            self.model, optimizer = to_fp16(self.model, optimizer, args.fp16_opt_level)
 
-        if parallel:
+        if args.parallel:
             self.model = to_parallel(self.model)
 
-        for e in range(epochs):
-            if hard_negative and args is not None:
+        for e in range(args.epochs):
+            if args.hard_negative and args is not None:
                 if e > 0:
                     self.build_searcher(candidate_dataset, max_title_len=args.max_title_len, max_desc_len=args.max_desc_len)
                     self.save_traindata_with_negative_samples(
                         mention_dataset,
                         args.path_for_NN + f"/{e}.jsonl",
                         args.path_for_NN + f"/{e}_index.npy",
-                        batch_size=batch_size,
+                        batch_size=args.bsz,
                         max_ctxt_len=args.max_ctxt_len,
                         max_title_len=args.max_title_len,
                         max_desc_len=args.max_desc_len,
@@ -237,9 +219,8 @@ class BertCandidateGenerator(object):
                 # mention_dataset = MentionDataset(args.mention_dataset, index, mention_tokenizer, preprocessed=args.mention_preprocessed, return_json=True, without_context=args.without_context)
 
             #mention_batch = mention_dataset.batch(batch_size=batch_size, random_bsz=random_bsz, max_ctxt_len=max_ctxt_len)
-            dataloader = DataLoader(mention_dataset, batch_size=batch_size, shuffle=True, collate_fn=my_collate_fn_json, num_workers=8)
-            bar = tqdm(total=traindata_size)
-            #for step, (input_ids, labels) in enumerate(mention_batch):
+            dataloader = DataLoader(mention_dataset, batch_size=args.bsz, shuffle=True, collate_fn=my_collate_fn_json, num_workers=8)
+            bar = tqdm(total=args.traindata_size)
             for step, (input_ids, labels, lines) in enumerate(dataloader):
                 if self.logger:
                     self.logger.debug("%s step", step)
@@ -253,7 +234,7 @@ class BertCandidateGenerator(object):
                 mention_reps = self.model(inputs, input_mask, is_mention=True)
 
                 pages = list(labels[:])
-                if hard_negative:
+                if args.hard_negative:
                     hard_pages = []
                     for label, line in zip(labels, lines):
                         _hard_pages = []
@@ -265,15 +246,15 @@ class BertCandidateGenerator(object):
                             _hard_pages.append(str(i))
                         hard_pages.extend(_hard_pages)
 
-                    candidate_input_ids = candidate_dataset.get_pages(pages, max_title_len=max_title_len, max_desc_len=max_desc_len)
+                    candidate_input_ids = candidate_dataset.get_pages(pages, max_title_len=args.max_title_len, max_desc_len=args.max_desc_len)
                     candidate_inputs = pad_sequence([torch.LongTensor(token)
                                                     for token in candidate_input_ids], padding_value=0).t().to(self.device)
                     candidate_mask = candidate_inputs > 0
                     candidate_reps = self.model(candidate_inputs, candidate_mask, is_mention=False)
                     scores = mention_reps.mm(candidate_reps.t())
 
-                    hard_candidate_input_ids = candidate_dataset.get_pages(hard_pages, max_title_len=max_title_len, max_desc_len=max_desc_len)
-                    shard_bsz = 64
+                    hard_candidate_input_ids = candidate_dataset.get_pages(hard_pages, max_title_len=args.max_title_len, max_desc_len=args.max_desc_len)
+                    shard_bsz = args.bsz
                     for bsz in range(0, len(hard_candidate_input_ids), shard_bsz):
                         hard_candidate_inputs = pad_sequence([torch.LongTensor(token)
                                                                 for token in hard_candidate_input_ids[bsz:bsz+shard_bsz]], padding_value=0).t().to(self.device)
@@ -290,7 +271,7 @@ class BertCandidateGenerator(object):
                     target = torch.LongTensor(torch.arange(scores.size(0))).to(self.device)
                     loss = F.cross_entropy(scores, target, reduction="mean")
                 else:
-                    candidate_input_ids = candidate_dataset.get_pages(pages, max_title_len=max_title_len, max_desc_len=max_desc_len)
+                    candidate_input_ids = candidate_dataset.get_pages(pages, max_title_len=args.max_title_len, max_desc_len=args.max_desc_len)
                     candidate_inputs = pad_sequence([torch.LongTensor(token)
                                                     for token in candidate_input_ids], padding_value=0).t().to(self.device)
                     candidate_mask = candidate_inputs > 0
@@ -307,21 +288,21 @@ class BertCandidateGenerator(object):
                     self.logger.debug("Train loss: %s", loss.item())
 
 
-                if fp16:
+                if args.fp16:
                     with amp.scale_loss(loss, optimizer) as scaled_loss:
                         scaled_loss.backward()
                 else:
                     loss.backward()
 
 
-                if (step + 1) % grad_acc_step == 0:
-                    if fp16:
+                if (step + 1) % args.grad_acc_step == 0:
+                    if args.fp16:
                         torch.nn.utils.clip_grad_norm_(
-                            amp.master_params(optimizer), max_grad_norm
+                            amp.master_params(optimizer), args.max_grad_norm
                         )
                     else:
                         torch.nn.utils.clip_grad_norm_(
-                            self.model.parameters(), max_grad_norm
+                            self.model.parameters(), args.max_grad_norm
                         )
                     optimizer.step()
                     # scheduler.step()

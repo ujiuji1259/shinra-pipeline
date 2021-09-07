@@ -88,15 +88,12 @@ class ShinraData(object):
     def from_shinra2020_format(
         cls,
         input_path=None,
-        attribute_path=None):
+        get_attributes=False):
 
         input_path = Path(input_path)
         category = input_path.stem
 
-        if attribute_path is None:
-            attribute_path = input_path / "attributes.txt"
-        else:
-            attribute_path = Path(attribute_path)
+        attribute_path = input_path.parent.parent / "attributes" / f"{category}.txt"
 
         anns = load_annotation(input_path / f"{category}_dist.json")
         vocab = load_vocab(input_path / "vocab.txt")
@@ -112,6 +109,9 @@ class ShinraData(object):
             attributes = list(attributes)
             with open(attribute_path, "w") as f:
                 f.write("\n".join(attributes))
+
+        if get_attributes:
+            yield attributes
 
         docs = []
         for token_file in tqdm(input_path.glob("tokens/*.txt")):

@@ -11,10 +11,12 @@ RUN pip install ipadic
 # RUN git clone https://github.com/NVIDIA/apex
 # RUN pip install -v --disable-pip-version-check --no-cache-dir ./apex
 
-ENV DATA_PATH /src
+RUN conda install -c pytorch faiss-gpu
 
+RUN mkdir /data
 RUN mkdir /models
-ENV MODEL_PATH /models
+# ENV MODEL_PATH /models
+# ENV DATA_PATH /src
 
 WORKDIR /workspace
 
