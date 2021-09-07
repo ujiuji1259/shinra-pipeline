@@ -39,10 +39,10 @@ class BertBiEncoder(nn.Module):
 
 
 class BertCandidateGenerator(object):
-    def __init__(self, biencoder, device="cpu", model_path=None, use_mlflow=False, builder_gpu=False, logger=None):
+    def __init__(self, biencoder, device="cpu", model_path=None, use_mlflow=False, builder_gpu=False, faiss_gpu_id=0, logger=None):
         self.model = biencoder.to(device)
         self.device = device
-        self.searcher = NearestNeighborSearch(768, use_gpu=builder_gpu)
+        self.searcher = NearestNeighborSearch(768, use_gpu=builder_gpu, gpu_id=faiss_gpu_id)
 
         self.model_path = model_path
         self.use_mlflow = use_mlflow
@@ -178,38 +178,6 @@ class BertCandidateGenerator(object):
         index = np.array(index)
         np.save(index_output_file, index)
 
-
-    def train_hard_negative(self,
-          mention_dataset,
-          candidate_dataset,
-          lr=1e-5,
-          batch_size=32,
-          random_bsz=100000,
-          max_ctxt_len=32,
-          max_title_len=50,
-          max_desc_len=100,
-          traindata_size=1000000,
-        ):
-
-        mention_batch = mention_dataset.batch(batch_size=batch_size, random_bsz=random_bsz, max_ctxt_len=max_ctxt_len, return_json=True)
-
-        optimizer = optim.Adam(self.model.parameters(), lr=lr)
-        all_loss = []
-        steps = 0
-        bar = tqdm(total=traindata_size)
-        for input_ids, labels, lines in mention_batch:
-            inputs = pad_sequence([torch.LongTensor(token)
-                                  for token in input_ids], padding_value=0).t().to(self.device)
-            input_mask = inputs > 0
-
-            mention_reps = self.model(inputs, input_mask, is_mention=True).detach().cpu().numpy()
-
-            candidate_input_ids = candidate_dataset.get_pages(labels, max_title_len=max_title_len, max_desc_len=max_desc_len)
-            candidate_inputs = pad_sequence([torch.LongTensor(token)
-                                            for token in candidate_input_ids], padding_value=0).t().to(self.device)
-            candidate_mask = candidate_inputs > 0
-            candidate_reps = self.model(candidate_inputs, candidate_mask, is_mention=False)
-
     def calculate_inbatch_accuracy(self, scores):
         preds = torch.argmax(scores, dim=1).tolist()
         result = sum([int(i == p) for i, p in enumerate(preds)])
@@ -218,7 +186,6 @@ class BertCandidateGenerator(object):
     def train(self,
               mention_dataset,
               candidate_dataset,
-              inbatch=True,
               lr=1e-5,
               batch_size=32,
               random_bsz=100000,
@@ -239,22 +206,20 @@ class BertCandidateGenerator(object):
               mention_tokenizer=None,
              ):
 
+        optimizer = optim.Adam(self.model.parameters(), lr=lr)
+        # scheduler = get_scheduler(
+        #     batch_size, grad_acc_step, epochs, warmup_propotion, optimizer, traindata_size)
 
-        if inbatch:
+        if fp16:
+            assert fp16_opt_level is not None
+            self.model, optimizer = to_fp16(self.model, optimizer, fp16_opt_level)
 
-            optimizer = optim.Adam(self.model.parameters(), lr=lr)
-            # scheduler = get_scheduler(
-            #     batch_size, grad_acc_step, epochs, warmup_propotion, optimizer, traindata_size)
+        if parallel:
+            self.model = to_parallel(self.model)
 
-            if fp16:
-                assert fp16_opt_level is not None
-                self.model, optimizer = to_fp16(self.model, optimizer, fp16_opt_level)
-
-            if parallel:
-                self.model = to_parallel(self.model)
-
-            for e in range(epochs):
-                if hard_negative and args is not None:
+        for e in range(epochs):
+            if hard_negative and args is not None:
+                if e > 0:
                     self.build_searcher(candidate_dataset, max_title_len=args.max_title_len, max_desc_len=args.max_desc_len)
                     self.save_traindata_with_negative_samples(
                         mention_dataset,
@@ -267,109 +232,117 @@ class BertCandidateGenerator(object):
                         traindata_size=args.traindata_size,
                         NNs=100,
                     )
-                    index = np.load(args.path_for_NN + f"/{e}_index.npy")
-                    mention_dataset = MentionDataset(args.path_for_NN + f"/{e}.jsonl", index, mention_tokenizer, preprocessed=args.mention_preprocessed, return_json=True, without_context=args.without_context)
-                    # mention_dataset = MentionDataset(args.mention_dataset, index, mention_tokenizer, preprocessed=args.mention_preprocessed, return_json=True, without_context=args.without_context)
+                index = np.load(args.path_for_NN + f"/{e}_index.npy")
+                mention_dataset = MentionDataset(args.path_for_NN + f"/{e}.jsonl", index, mention_tokenizer, preprocessed=args.mention_preprocessed, return_json=True, without_context=args.without_context)
+                # mention_dataset = MentionDataset(args.mention_dataset, index, mention_tokenizer, preprocessed=args.mention_preprocessed, return_json=True, without_context=args.without_context)
 
-                #mention_batch = mention_dataset.batch(batch_size=batch_size, random_bsz=random_bsz, max_ctxt_len=max_ctxt_len)
-                dataloader = DataLoader(mention_dataset, batch_size=batch_size, shuffle=True, collate_fn=my_collate_fn_json, num_workers=2)
-                bar = tqdm(total=traindata_size)
-                #for step, (input_ids, labels) in enumerate(mention_batch):
-                for step, (input_ids, labels, lines) in enumerate(dataloader):
-                    if self.logger:
-                        self.logger.debug("%s step", step)
-                        self.logger.debug("%s data in batch", len(input_ids))
-                        self.logger.debug("%s unique labels in %s labels", len(set(labels)), len(labels))
+            #mention_batch = mention_dataset.batch(batch_size=batch_size, random_bsz=random_bsz, max_ctxt_len=max_ctxt_len)
+            dataloader = DataLoader(mention_dataset, batch_size=batch_size, shuffle=True, collate_fn=my_collate_fn_json, num_workers=8)
+            bar = tqdm(total=traindata_size)
+            #for step, (input_ids, labels) in enumerate(mention_batch):
+            for step, (input_ids, labels, lines) in enumerate(dataloader):
+                if self.logger:
+                    self.logger.debug("%s step", step)
+                    self.logger.debug("%s data in batch", len(input_ids))
+                    self.logger.debug("%s unique labels in %s labels", len(set(labels)), len(labels))
 
-                    inputs = pad_sequence([torch.LongTensor(token)
-                                          for token in input_ids], padding_value=0).t().to(self.device)
-                    input_mask = inputs > 0
+                inputs = pad_sequence([torch.LongTensor(token)
+                                        for token in input_ids], padding_value=0).t().to(self.device)
+                input_mask = inputs > 0
 
-                    mention_reps = self.model(inputs, input_mask, is_mention=True)
+                mention_reps = self.model(inputs, input_mask, is_mention=True)
 
-                    pages = list(labels[:])
-                    if hard_negative:
-                        hard_pages = []
-                        for label, line in zip(labels, lines):
-                            _hard_pages = []
-                            for i in line["nearest_neighbors"]:
-                                if str(i) == label:
-                                    break
-                                if len(_hard_pages) > 10:
-                                    break
-                                _hard_pages.append(str(i))
-                            hard_pages.extend(_hard_pages)
+                pages = list(labels[:])
+                if hard_negative:
+                    hard_pages = []
+                    for label, line in zip(labels, lines):
+                        _hard_pages = []
+                        for i in line["nearest_neighbors"]:
+                            if len(_hard_pages) >= args.num_negs:
+                                break
+                            if str(i) == label:
+                                continue
+                            _hard_pages.append(str(i))
+                        hard_pages.extend(_hard_pages)
 
-                        candidate_input_ids = candidate_dataset.get_pages(pages, max_title_len=max_title_len, max_desc_len=max_desc_len)
-                        candidate_inputs = pad_sequence([torch.LongTensor(token)
-                                                        for token in candidate_input_ids], padding_value=0).t().to(self.device)
-                        candidate_mask = candidate_inputs > 0
-                        candidate_reps = self.model(candidate_inputs, candidate_mask, is_mention=False)
-                        scores = mention_reps.mm(candidate_reps.t())
+                    candidate_input_ids = candidate_dataset.get_pages(pages, max_title_len=max_title_len, max_desc_len=max_desc_len)
+                    candidate_inputs = pad_sequence([torch.LongTensor(token)
+                                                    for token in candidate_input_ids], padding_value=0).t().to(self.device)
+                    candidate_mask = candidate_inputs > 0
+                    candidate_reps = self.model(candidate_inputs, candidate_mask, is_mention=False)
+                    scores = mention_reps.mm(candidate_reps.t())
 
-                        hard_candidate_input_ids = candidate_dataset.get_pages(hard_pages, max_title_len=max_title_len, max_desc_len=max_desc_len)
+                    hard_candidate_input_ids = candidate_dataset.get_pages(hard_pages, max_title_len=max_title_len, max_desc_len=max_desc_len)
+                    shard_bsz = 64
+                    for bsz in range(0, len(hard_candidate_input_ids), shard_bsz):
                         hard_candidate_inputs = pad_sequence([torch.LongTensor(token)
-                                                        for token in hard_candidate_input_ids], padding_value=0).t().to(self.device)
+                                                                for token in hard_candidate_input_ids[bsz:bsz+shard_bsz]], padding_value=0).t().to(self.device)
                         hard_candidate_mask = hard_candidate_inputs > 0
-                        hard_candidate_reps = self.model(hard_candidate_inputs, hard_candidate_mask, is_mention=False).view(-1, 10, 768)
-                        hard_scores = torch.bmm(mention_reps.unsqueeze(1), torch.transpose(hard_candidate_reps, 1, 2)).unsqueeze(1)
+                        if bsz == 0:
+                            hard_candidate_reps = self.model(hard_candidate_inputs, hard_candidate_mask, is_mention=False)
+                        else:
+                            hard_candidate_reps = torch.cat([hard_candidate_reps, self.model(hard_candidate_inputs, hard_candidate_mask, is_mention=False)], dim=0)
+                    hard_scores = torch.bmm(mention_reps.unsqueeze(1), torch.transpose(hard_candidate_reps.view(-1, 10, 768), 1, 2)).view(-1, 10)
 
-                        scores = torch.cat([scores, hard_scores], dim=-1)
-                        accuracy = self.calculate_inbatch_accuracy(scores)
+                    scores = torch.cat([scores, hard_scores], dim=-1)
+                    accuracy = self.calculate_inbatch_accuracy(scores)
 
-                        target = torch.LongTensor(torch.arange(scores.size(0))).to(self.device)
-                        loss = F.cross_entropy(scores, target, reduction="mean")
+                    target = torch.LongTensor(torch.arange(scores.size(0))).to(self.device)
+                    loss = F.cross_entropy(scores, target, reduction="mean")
+                else:
+                    candidate_input_ids = candidate_dataset.get_pages(pages, max_title_len=max_title_len, max_desc_len=max_desc_len)
+                    candidate_inputs = pad_sequence([torch.LongTensor(token)
+                                                    for token in candidate_input_ids], padding_value=0).t().to(self.device)
+                    candidate_mask = candidate_inputs > 0
+                    candidate_reps = self.model(candidate_inputs, candidate_mask, is_mention=False)
+
+                    scores = mention_reps.mm(candidate_reps.t())
+                    accuracy = self.calculate_inbatch_accuracy(scores)
+
+                    target = torch.LongTensor(torch.arange(scores.size(0))).to(self.device)
+                    loss = F.cross_entropy(scores, target, reduction="mean")
+
+                if self.logger:
+                    self.logger.debug("Accurac: %s", accuracy)
+                    self.logger.debug("Train loss: %s", loss.item())
+
+
+                if fp16:
+                    with amp.scale_loss(loss, optimizer) as scaled_loss:
+                        scaled_loss.backward()
+                else:
+                    loss.backward()
+
+
+                if (step + 1) % grad_acc_step == 0:
+                    if fp16:
+                        torch.nn.utils.clip_grad_norm_(
+                            amp.master_params(optimizer), max_grad_norm
+                        )
                     else:
-                        candidate_input_ids = candidate_dataset.get_pages(pages, max_title_len=max_title_len, max_desc_len=max_desc_len)
-                        candidate_inputs = pad_sequence([torch.LongTensor(token)
-                                                        for token in candidate_input_ids], padding_value=0).t().to(self.device)
-                        candidate_mask = candidate_inputs > 0
-                        candidate_reps = self.model(candidate_inputs, candidate_mask, is_mention=False)
-
-                        scores = mention_reps.mm(candidate_reps.t())
-                        accuracy = self.calculate_inbatch_accuracy(scores)
-
-                        target = torch.LongTensor(torch.arange(scores.size(0))).to(self.device)
-                        loss = F.cross_entropy(scores, target, reduction="mean")
+                        torch.nn.utils.clip_grad_norm_(
+                            self.model.parameters(), max_grad_norm
+                        )
+                    optimizer.step()
+                    # scheduler.step()
+                    optimizer.zero_grad()
 
                     if self.logger:
-                        self.logger.debug("Accurac: %s", accuracy)
-                        self.logger.debug("Train loss: %s", loss.item())
+                        self.logger.debug("Back propagation in step %s", step+1)
+                        # self.logger.debug("LR: %s", scheduler.get_lr())
 
+                if self.use_mlflow:
+                    mlflow.log_metric("train loss", loss.item(), step=step)
+                    mlflow.log_metric("accuracy", accuracy, step=step)
 
-                    if fp16:
-                        with amp.scale_loss(loss, optimizer) as scaled_loss:
-                            scaled_loss.backward()
-                    else:
-                        loss.backward()
+                #if self.model_path is not None and step % model_save_interval == 0:
+                    #torch.save(self.model.state_dict(), self.model_path)
+                    # save_model(self.model, self.model_path + f'_{e}.model')
 
+                bar.update(len(input_ids))
+                bar.set_description(f"Loss: {loss.item()}, Accuracy: {accuracy}")
 
-                    if (step + 1) % grad_acc_step == 0:
-                        if fp16:
-                            torch.nn.utils.clip_grad_norm_(
-                                amp.master_params(optimizer), max_grad_norm
-                            )
-                        else:
-                            torch.nn.utils.clip_grad_norm_(
-                                self.model.parameters(), max_grad_norm
-                            )
-                        optimizer.step()
-                        # scheduler.step()
-                        optimizer.zero_grad()
-
-                        if self.logger:
-                            self.logger.debug("Back propagation in step %s", step+1)
-                            # self.logger.debug("LR: %s", scheduler.get_lr())
-
-                    if self.use_mlflow:
-                        mlflow.log_metric("train loss", loss.item(), step=step)
-                        mlflow.log_metric("accuracy", accuracy, step=step)
-
-                    if self.model_path is not None and step % model_save_interval == 0:
-                        #torch.save(self.model.state_dict(), self.model_path)
-                        save_model(self.model, self.model_path)
-
-                    bar.update(len(input_ids))
-                    bar.set_description(f"Loss: {loss.item()}, Accuracy: {accuracy}")
+            if self.model_path is not None:
+                save_model(self.model, self.model_path + f'_{e}.model')
 
 

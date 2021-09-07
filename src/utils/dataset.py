@@ -87,24 +87,30 @@ class ShinraData(object):
     @classmethod
     def from_shinra2020_format(
         cls,
-        input_path=None):
+        input_path=None,
+        attribute_path=None):
 
         input_path = Path(input_path)
         category = input_path.stem
+
+        if attribute_path is None:
+            attribute_path = input_path / "attributes.txt"
+        else:
+            attribute_path = Path(attribute_path)
 
         anns = load_annotation(input_path / f"{category}_dist.json")
         vocab = load_vocab(input_path / "vocab.txt")
 
         # create attributes
-        if (input_path / "attributes.txt").exists():
-            with open(input_path / "attributes.txt", "r") as f:
+        if attribute_path.exists():
+            with open(attribute_path, "r") as f:
                 attributes = [attr for attr in f.read().split("\n") if attr != '']
         else:
             attributes = set()
             for page_id, ann in anns.items():
                 attributes.update([a["attribute"] for a in ann if "attribute" in a])
             attributes = list(attributes)
-            with open(input_path / "attributes.txt", "w") as f:
+            with open(attribute_path, "w") as f:
                 f.write("\n".join(attributes))
 
         docs = []
