@@ -133,3 +133,5 @@ mlruns/
 
 # trained model
 models/
+
+outputs/

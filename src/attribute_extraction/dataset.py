@@ -63,6 +63,7 @@ def ner_collate_fn(batch):
 
     return {"tokens": tokens, "word_idxs": word_idxs, "labels": labels}
 
+
 if __name__ == "__main__":
     dataset = ShinraData.from_shinra2020_format("/data1/ujiie/shinra/tohoku_bert/attributes.pickle", Path("/data1/ujiie/shinra/tohoku_bert/Event/Event_Other"))
 

@@ -11,12 +11,10 @@ RUN pip install ipadic
 RUN git clone https://github.com/NVIDIA/apex
 RUN pip install -v --disable-pip-version-check --no-cache-dir ./apex
 
-
 ENV DATA_PATH /src
 
-RUN mkdir /workspace
-RUN mkdir /workspace/models
-ENV MODEL_PATH /workspace/models
+RUN mkdir /models
+ENV MODEL_PATH /models
 
 WORKDIR /workspace
 

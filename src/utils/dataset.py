@@ -238,7 +238,6 @@ class ShinraData(object):
         %%% IOB for ** only word-level iob2 tag **
         iobs = [sent, sent, ...]
         sent = [[Token1_attr1_iob, Token2_attr1_iob, ...], [Token1_attr2_iob, Token2_attr2_iob, ...], ...]
-
         {"O": 0, "B": 1, "I": 2}
         """
         iobs = [[["O" for _ in range(len(tokens)-1)] for _ in range(len(self.attributes))] for tokens in self.word_alignments]

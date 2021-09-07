@@ -1,6 +1,9 @@
 import argparse
 import json
+import sys
 from pathlib import Path
+
+sys.path.append("../")
 
 import torch
 from torch.utils.data import DataLoader, Subset
@@ -19,16 +22,15 @@ device = "cuda:0" if torch.cuda.is_available() else "cpu"
 def ner_for_shinradata(model, tokenizer, shinra_dataset, device, bsz=8):
     processed_data = shinra_dataset.ner_inputs
     dataset = NerDataset(processed_data, tokenizer)
-    total_preds, _ = predict(model, dataset, device)
+    total_preds, _ = predict(model, dataset, device, sent_wise=True)
 
     shinra_dataset.add_nes_from_iob(total_preds)
 
     return shinra_dataset
 
 
-def predict(input_model, dataset, device):
-    input_model.eval()
-    model = input_model.module if hasattr(input_model, "module") else input_model
+def predict(model, dataset, device, sent_wise=False):
+    model.eval()
     dataloader = DataLoader(dataset, batch_size=8, collate_fn=ner_collate_fn)
 
     total_preds = []
@@ -52,11 +54,16 @@ def predict(input_model, dataset, device):
             )
 
             total_preds.append(preds)
-            total_trues.append(labels if labels is not None else [None])
+            # test dataの場合truesは使わないので適当にpredsを入れる
+            total_trues.append(labels if labels[0] is not None else preds)
 
     attr_num = len(total_preds[0])
     total_preds = [[pred for preds in total_preds for pred in preds[attr]] for attr in range(attr_num)]
     total_trues = [[true for trues in total_trues for true in trues[attr]] for attr in range(attr_num)]
+
+    if sent_wise:
+        total_preds = [[total_preds[attr][idx] for attr in range(attr_num)] for idx in range(len(total_preds[0]))]
+        total_trues = [[total_trues[attr][idx] for attr in range(attr_num)] for idx in range(len(total_trues[0]))]
 
     return total_preds, total_trues
 
@@ -66,6 +73,7 @@ def parse_arg():
     parser.add_argument("--bert_name", type=str, help="Specify BERT name")
     parser.add_argument("--input_path", type=str, help="Specify input path in SHINRA2020")
     parser.add_argument("--model_path", type=str, help="Specify attribute_list path in SHINRA2020")
+    parser.add_argument("--attribute_path", type=str, help="Specify attribute_list path in SHINRA2020")
     parser.add_argument("--output_path", type=str, help="Specify attribute_list path in SHINRA2020")
     parser.add_argument("--bsz", type=int, help="Specify attribute_list path in SHINRA2020")
     parser.add_argument("--parallel", action="store_true", help="Specify attribute_list path in SHINRA2020")
@@ -85,10 +93,17 @@ if __name__ == "__main__":
     tokenizer = AutoTokenizer.from_pretrained(args.bert_name)
 
     # dataset = [ShinraData(), ....]
-    dataset = ShinraData.from_shinra2020_format(Path(args.input_path))
+    dataset = ShinraData.from_shinra2020_format(Path(args.input_path), attribute_path=args.attribute_path)
 
-    model = BertForMultilabelNER(bert, len(dataset.attributes[0])).to(device)
+    with open(args.attribute_path, "r") as f:
+        attributes = [attr for attr in f.read().split("\n") if attr != '']
+
+    model = BertForMultilabelNER(bert, len(attributes)).to(device)
     model.load_state_dict(torch.load(args.model_path))
+
+    if args.fp16:
+        assert args.fp16_opt_level is not None
+        model = to_fp16(model, fp16_opt_level=args.fp16_opt_level)
 
     with open(args.output_path, "w") as f:
         for data in dataset:
