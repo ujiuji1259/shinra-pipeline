@@ -26,7 +26,7 @@ from dataset import NerDataset, ner_collate_fn, create_batch_dataset_for_ner
 from model import BertForMultilabelNER, create_pooler_matrix
 from predict import predict
 
-device = "cuda:1" if torch.cuda.is_available() else "cpu"
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # seed固定
 def set_seed(seed):

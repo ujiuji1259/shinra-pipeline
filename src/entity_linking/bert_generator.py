@@ -185,6 +185,7 @@ class BertCandidateGenerator(object):
 
     def train(self,
               mention_dataset,
+              index,
               candidate_dataset,
               args=None,
               mention_tokenizer=None,
@@ -214,9 +215,8 @@ class BertCandidateGenerator(object):
                         traindata_size=args.traindata_size,
                         NNs=100,
                     )
-                index = np.load(args.path_for_NN + f"/{e}_index.npy")
-                mention_dataset = MentionDataset(args.path_for_NN + f"/{e}.jsonl", index, mention_tokenizer, preprocessed=args.mention_preprocessed, return_json=True, without_context=args.without_context)
-                # mention_dataset = MentionDataset(args.mention_dataset, index, mention_tokenizer, preprocessed=args.mention_preprocessed, return_json=True, without_context=args.without_context)
+                    index = np.load(args.path_for_NN + f"/{e}_index.npy")
+                    mention_dataset = MentionDataset(args.path_for_NN + f"/{e}.jsonl", index, mention_tokenizer, preprocessed=args.mention_preprocessed, return_json=True, without_context=args.without_context)
 
             #mention_batch = mention_dataset.batch(batch_size=batch_size, random_bsz=random_bsz, max_ctxt_len=max_ctxt_len)
             dataloader = DataLoader(mention_dataset, batch_size=args.bsz, shuffle=True, collate_fn=my_collate_fn_json, num_workers=8)
@@ -263,7 +263,7 @@ class BertCandidateGenerator(object):
                             hard_candidate_reps = self.model(hard_candidate_inputs, hard_candidate_mask, is_mention=False)
                         else:
                             hard_candidate_reps = torch.cat([hard_candidate_reps, self.model(hard_candidate_inputs, hard_candidate_mask, is_mention=False)], dim=0)
-                    hard_scores = torch.bmm(mention_reps.unsqueeze(1), torch.transpose(hard_candidate_reps.view(-1, 10, 768), 1, 2)).view(-1, 10)
+                    hard_scores = torch.bmm(mention_reps.unsqueeze(1), torch.transpose(hard_candidate_reps.view(-1, args.num_negs, 768), 1, 2)).view(-1, 10)
 
                     scores = torch.cat([scores, hard_scores], dim=-1)
                     accuracy = self.calculate_inbatch_accuracy(scores)

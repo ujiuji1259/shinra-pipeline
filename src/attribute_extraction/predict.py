@@ -5,6 +5,7 @@ from pathlib import Path
 
 sys.path.append("../")
 
+from tqdm import tqdm
 import torch
 from torch.utils.data import DataLoader, Subset
 from torch.nn.utils.rnn import pad_sequence
@@ -16,7 +17,7 @@ from attribute_extraction.dataset import NerDataset, ner_collate_fn, create_data
 from attribute_extraction.model import BertForMultilabelNER, create_pooler_matrix
 
 
-device = "cuda:0" if torch.cuda.is_available() else "cpu"
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 def ner_for_shinradata(model, tokenizer, shinra_dataset, device, bsz=8):
@@ -103,6 +104,13 @@ if __name__ == "__main__":
         model = to_fp16(model, fp16_opt_level=args.fp16_opt_level)
 
     with open(args.output_path, "w") as f:
-        for data in dataset:
+        step = 0
+        for data in tqdm(dataset):
+            if data.nes is None:
+                continue
             output_dataset = ner_for_shinradata(model, tokenizer, data, device, bsz=args.bsz)
             f.write("\n".join([json.dumps(n, ensure_ascii=False) for n in output_dataset.nes]))
+            step += 1
+            if step > 50:
+                break
+            f.write("\n")
