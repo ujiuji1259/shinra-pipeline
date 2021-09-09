@@ -33,16 +33,15 @@ class BertBiEncoder(nn.Module):
             model = self.candidate_bert
 
         if shard_bsz is None:
-            bertrep, _ = model(input_ids, attention_mask=attention_mask)
+            bertrep = model(input_ids, attention_mask=attention_mask).last_hidden_state
             bertrep = bertrep[:, 0, :]
         return bertrep
 
 
 class BertCandidateGenerator(object):
-    def __init__(self, biencoder, device="cpu", model_path=None, use_mlflow=False, builder_gpu=False, faiss_gpu_id=0, logger=None):
+    def __init__(self, biencoder, device="cpu", model_path=None, use_mlflow=False, logger=None):
         self.model = biencoder.to(device)
         self.device = device
-        self.searcher = NearestNeighborSearch(768, use_gpu=builder_gpu, gpu_id=faiss_gpu_id)
 
         self.model_path = model_path
         self.use_mlflow = use_mlflow
@@ -107,10 +106,14 @@ class BertCandidateGenerator(object):
 
     def build_searcher(self,
                        candidate_dataset,
+                       builder_gpu=False,
+                       faiss_gpu_id=None,
                        max_title_len=50,
                        max_desc_len=100):
         page_ids = list(candidate_dataset.data.keys())
-        batch_size = 512
+        batch_size = 1024
+
+        self.searcher = NearestNeighborSearch(768, len(page_ids), use_gpu=builder_gpu, gpu_id=faiss_gpu_id)
 
         with torch.no_grad():
             for start in tqdm(range(0, len(page_ids), batch_size)):
@@ -129,6 +132,7 @@ class BertCandidateGenerator(object):
                 reps = reps.detach().cpu().numpy()
 
                 self.searcher.add_entries(reps, pages)
+        self.searcher.finish_add_entry()
 
     def save_traindata_with_negative_samples(self,
           mention_dataset,
@@ -202,13 +206,14 @@ class BertCandidateGenerator(object):
 
         for e in range(args.epochs):
             if args.hard_negative and args is not None:
-                if e > 0:
-                    self.build_searcher(candidate_dataset, max_title_len=args.max_title_len, max_desc_len=args.max_desc_len)
+                if e > -1:
+                    self.build_searcher(candidate_dataset, builder_gpu=args.builder_gpu, faiss_gpu_id=args.faiss_gpu_id, max_title_len=args.max_title_len, max_desc_len=args.max_desc_len)
                     self.save_traindata_with_negative_samples(
                         mention_dataset,
                         args.path_for_NN + f"/{e}.jsonl",
                         args.path_for_NN + f"/{e}_index.npy",
                         batch_size=args.bsz,
+                        # batch_size=512,
                         max_ctxt_len=args.max_ctxt_len,
                         max_title_len=args.max_title_len,
                         max_desc_len=args.max_desc_len,
@@ -263,7 +268,7 @@ class BertCandidateGenerator(object):
                             hard_candidate_reps = self.model(hard_candidate_inputs, hard_candidate_mask, is_mention=False)
                         else:
                             hard_candidate_reps = torch.cat([hard_candidate_reps, self.model(hard_candidate_inputs, hard_candidate_mask, is_mention=False)], dim=0)
-                    hard_scores = torch.bmm(mention_reps.unsqueeze(1), torch.transpose(hard_candidate_reps.view(-1, args.num_negs, 768), 1, 2)).view(-1, 10)
+                    hard_scores = torch.bmm(mention_reps.unsqueeze(1), torch.transpose(hard_candidate_reps.view(-1, args.num_negs, 768), 1, 2)).view(-1, args.num_negs)
 
                     scores = torch.cat([scores, hard_scores], dim=-1)
                     accuracy = self.calculate_inbatch_accuracy(scores)

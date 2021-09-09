@@ -9,6 +9,22 @@ from utils.util import load_title2id
 
 pattern = '<a href=".*?" title="(.*?)">'
 
+default_rec_list = [
+    ("Airport", "別名"),
+    ("City", "別名"),
+    ("Company", "別名"),
+    ("Conference", "別名"),
+    ("Lake", "別名"),
+    ("Person", "別名"),
+    ("Compound", "別称"),
+    ("Compound", "商標名"),
+    ("Airport", "旧称"),
+    ("City", "旧称"),
+    ("Conference", "旧称・前身"),
+    ("Company", "起源"),
+    ("Company", "過去の社名"),
+]
+
 def link_using_atag(html_text, title2id):
     link_pages = re.findall(pattern, html_text)
     if link_pages:
@@ -30,6 +46,7 @@ def exact_match(mention, title2id):
 
 
 def find_reccursive_page(ann, category, rec_list):
+    rec_list = rec_list if rec_list is not None else default_rec_list
     attr = ann['attribute']
     if (category, attr) in rec_list:
         return ann['page_id']
@@ -37,21 +54,7 @@ def find_reccursive_page(ann, category, rec_list):
 
 
 if __name__ == "__main__":
-    rec_list = [
-        ("Airport", "別名"),
-        ("City", "別名"),
-        ("Company", "別名"),
-        ("Conference", "別名"),
-        ("Lake", "別名"),
-        ("Person", "別名"),
-        ("Compound", "別称"),
-        ("Compound", "商標名"),
-        ("Airport", "旧称"),
-        ("City", "旧称"),
-        ("Conference", "旧称・前身"),
-        ("Company", "起源"),
-        ("Company", "過去の社名"),
-    ]
+
     title2id = load_title2id("/data1/ujiie/wiki_resource/title2page.csv")
     tokenizer = AutoTokenizer.from_pretrained("cl-tohoku/bert-base-japanese")
     dataset = ShinraData.from_linkjp_format(

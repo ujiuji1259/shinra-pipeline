@@ -3,7 +3,6 @@ import sys
 import random
 import os
 sys.path.append('../')
-from line_profiler import LineProfiler
 import argparse
 from logging import getLogger, StreamHandler, DEBUG, Formatter, FileHandler
 
@@ -57,7 +56,7 @@ def parse_args():
     # training configs
     parser.add_argument("--epochs", type=int, help="epochs")
     parser.add_argument("--lr", type=float, help="learning rate")
-    parser.add_argument("--gradient_accumulation_steps", type=int, help="learning rate")
+    parser.add_argument("--grad_acc_step", type=int, help="learning rate")
     parser.add_argument("--max_grad_norm", default=1.0, type=float)
     parser.add_argument("--bsz", type=int, help="batch size")
     parser.add_argument("--seed", type=int, help="data size loaded at one time")
