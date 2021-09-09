@@ -40,6 +40,9 @@ class CandidateDataset(object):
         self.SEP = self.tokenizer.convert_tokens_to_ids(['[SEP]'])[0]
         self.without_context = without_context
 
+    def __len__(self):
+        return len(self.data)
+
     def save_preprocessed_data(self, fn):
         with open(fn, 'wb') as f:
             pickle.dump(self.data, f)

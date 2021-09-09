@@ -3,6 +3,57 @@ import unicodedata
 
 from transformers import AutoTokenizer
 
+def annotation_mapper(annotation, tokenized_sentences, ann_key="token", patch={}):
+    """
+    オフセットを各トークンにマップします。
+    """
+    match_errors = 0
+    for ann in annotation:
+        if ann.get("text_offset") is None: # 総称フラグ関連
+            continue
+
+        start, end = ann["text_offset"]["start"], ann["text_offset"]["end"]
+
+        ann["token_offset"] = {
+            "start":{"line_id":start["line_id"]},
+            "end":{"line_id":end["line_id"]},
+            "text":ann["text_offset"]["text"]
+        }
+
+        match_error = False
+
+        tokens = tokenized_sentences[start["line_id"]]
+        for i, (token, s, e) in enumerate(tokens):
+            if start["offset"] >= s and start["offset"] < e:
+                ann["token_offset"]["start"]["offset"] = i
+                if s != start["offset"]:
+                    match_error = True
+                break
+
+        assert ann["token_offset"]["start"].get("offset") is not None, \
+            f"Startオフセットマッチエラー\ntokens:{tokens}\nann:{ann['text_offset']}"
+
+        tokens = tokenized_sentences[end["line_id"]]
+        for i, (token, s, e) in enumerate(tokens):
+            if end["offset"] > s and end["offset"] <= e:
+                ann["token_offset"]["end"]["offset"] = i + 1
+                if e != end["offset"]:
+                    match_error = True
+                break
+
+        if ann["token_offset"]["end"].get("offset") is None:
+            key=(int(ann["page_id"]), ann["attribute"], ann["text_offset"]["end"]["line_id"], ann["text_offset"]["end"]["offset"])
+            ann["token_offset"]["end"]["offset"] = patch.get(key)
+
+        assert ann["token_offset"]["end"].get("offset") is not None, f"Endオフセットマッチエラー\n{ann}\ntokens:{tokens}\nann:{ann['text_offset']}"
+
+        #del ann["text_offset"]
+        #del ann["html_offset"]
+
+        match_errors += match_error
+
+    return annotation, match_errors
+
 def replace_unk(tokens, subwords):
     unk_subwords = []
     for token, subword in zip(tokens, subwords):

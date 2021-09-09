@@ -4,19 +4,30 @@ import numpy as np
 import faiss
 
 class NearestNeighborSearch(object):
-    def __init__(self, dim, metric="dot", use_gpu=False, gpu_id=0):
+    def __init__(self, dim, total_size, metric="dot", use_gpu=False, gpu_id=0, ivf=False):
         self.dim = dim
         self.use_gpu = use_gpu
+        self.ivf = ivf
         if metric == "dot":
-            self.index = faiss.IndexFlatIP(self.dim)
+            index = faiss.IndexFlatIP(self.dim)
+            index_metric = faiss.METRIC_INNER_PRODUCT
         elif metric == "euclid":
-            self.index = faiss.IndexFlatL2(self.dim)
+            index = faiss.IndexFlatL2(self.dim)
+            index_metric = faiss.METRIC_L2
+
+        if ivf:
+            self.index = faiss.IndexIVFFlat(index, d, nlist, index_metric)
+        else:
+            self.index = index
+
 
         if self.use_gpu:
             res = faiss.StandardGpuResources()
             self.index = faiss.index_cpu_to_gpu(res, gpu_id, self.index)
 
         self.page_ids = []
+        self.reps = np.empty((total_size, dim))
+        self.cnt = 0
 
     def load_index(self, save_dir):
         save_dir = Path(save_dir)
@@ -38,8 +49,17 @@ class NearestNeighborSearch(object):
             f.write('\n'.join([str(l) for l in self.page_ids]))
 
     def add_entries(self, reps, ids):
-        self.index.add(reps)
+        # self.index.add(reps)
+        self.reps[self.cnt:self.cnt+reps.shape[0]] = reps
+        self.cnt += reps.shape[0]
         self.page_ids.extend(ids)
+
+    def finish_add_entry(self):
+        if self.ivf:
+            self.index.train(self.reps)
+        self.index.add(self.reps)
+
+        del self.reps
 
     def search(self, queries, k):
         D, I = self.index.search(queries, k)

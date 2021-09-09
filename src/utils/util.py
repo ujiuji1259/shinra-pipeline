@@ -1,8 +1,19 @@
+import csv
+
 import torch
 from transformers import get_linear_schedule_with_warmup
 
 import apex
 from apex import amp
+
+
+def load_title2id(path):
+    title2id = {}
+    with open(path, 'r') as f:
+        reader = csv.reader(f)
+        for row in reader:
+            title2id[row[0]] = row[1]
+    return title2id
 
 
 def calculate_recall(trues, candidates, ks=[1, 5, 10, 30, 50, 100]):

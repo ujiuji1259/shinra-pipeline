@@ -1,8 +1,8 @@
-DATA_PATH=/home/is/ujiie/shinra2
+DATA_PATH=/data1/ujiie/shinra/tohoku_bert2
 MODEL_PATH=/home/is/ujiie/shinra-pipeline/new_models
 
 # all_categories=("Event" "Facility" "JP-5" "Location" "Organization")
-all_categories=("Organization")
+all_categories=("Facility")
 DATA_SPLIT="${DATA_PATH}/data_split/"
 for fn in ${DATA_PATH}/*/*
 do

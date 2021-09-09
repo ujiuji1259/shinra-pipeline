@@ -3,7 +3,6 @@ import sys
 import random
 import os
 sys.path.append('../')
-from line_profiler import LineProfiler
 import argparse
 from logging import getLogger, StreamHandler, DEBUG, Formatter, FileHandler
 
@@ -57,12 +56,9 @@ def parse_args():
     # training configs
     parser.add_argument("--epochs", type=int, help="epochs")
     parser.add_argument("--lr", type=float, help="learning rate")
-    parser.add_argument("--warmup_propotion", type=float, help="learning rate")
-    parser.add_argument("--gradient_accumulation_steps", type=int, help="learning rate")
+    parser.add_argument("--grad_acc_step", type=int, help="learning rate")
     parser.add_argument("--max_grad_norm", default=1.0, type=float)
     parser.add_argument("--bsz", type=int, help="batch size")
-    parser.add_argument("--model_save_interval", default=None, type=int, help="batch size")
-    parser.add_argument("--random_bsz", type=int, help="data size loaded at one time")
     parser.add_argument("--seed", type=int, help="data size loaded at one time")
     parser.add_argument("--max_ctxt_len", type=int, help="maximum context length")
     parser.add_argument("--max_title_len", type=int, help="maximum title length")
@@ -131,6 +127,7 @@ def main():
     try:
         model.train(
             mention_dataset,
+            index,
             candidate_dataset,
             args=args,
             mention_tokenizer=mention_tokenizer,

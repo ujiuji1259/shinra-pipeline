@@ -10,7 +10,7 @@ from tqdm import tqdm
 from transformers import AutoTokenizer
 
 from utils.util import decode_iob, is_chunk_start, is_chunk_end
-from utils.shinra_tokenizer import tokenize_sent
+from utils.shinra_tokenizer import tokenize_sent, annotation_mapper
 
 def load_tokens(path, vocab):
     tokens = []
@@ -68,7 +68,8 @@ def find_word_alignment(tokens):
 class ShinraData(object):
     def __init__(self, attributes, params={}):
         self.attributes = attributes
-        self.attr2idx = {attr: idx for idx, attr in enumerate(self.attributes)}
+        if self.attributes is not None:
+            self.attr2idx = {attr: idx for idx, attr in enumerate(self.attributes)}
 
         self.page_id = None
         self.page_title = None
@@ -80,9 +81,108 @@ class ShinraData(object):
         self.text_offsets = None
         self.valid_line_ids = None
         self.nes = None
+        self.link = None
 
         for key, value in params.items():
             setattr(self, key, value)
+
+    @classmethod
+    def from_one_doc_json(
+        cls,
+        attributes_path=None,
+        input_path=None,
+        tokenizer=None,
+    ):
+        with open(input_path, "r") as f:
+            data = json.load(f)
+        """
+        data = {
+            "page_id": page_id,
+            "page_title": title,
+            "category": category,
+            "plain_text":
+        }
+        """
+        tokens = []
+        text_offsets = []
+        sub2words = []
+        word_alignments = []
+        for sent in data["plain_text"]:
+            subwords, offset = tokenize_sent(sent, tokenizer)
+            word_alignment, sub2word = find_word_alignment(subwords)
+
+            tokens.append(subwords)
+            text_offsets.append(offset)
+            sub2words.append(sub2word)
+            word_alignments.append(word_alignment)
+
+        data["tokens"] = tokens
+        data["word_alignments"] = word_alignments
+        data["sub2word"] = sub2words
+        data["text_offsets"] = text_offsets
+
+        return cls(attributes_path, params=data)
+
+    @classmethod
+    def from_linkjp_format(
+        cls,
+        input_path=None,
+        category=None,
+        tokenizer=None):
+
+        input_path = Path(input_path)
+        text_path = input_path / "plain" / category
+
+        anns = load_annotation(input_path / "ene_annotation" / f"{category}.json")
+
+        for text_file in tqdm(text_path.glob("*.txt")):
+            page_id = int(text_file.stem)
+
+            tokens = []
+            text_offsets = []
+            sub2words = []
+            word_alignments = []
+            annotation_mappers = []
+            with open(text_file, "r") as f:
+                for line_id, sent in enumerate(f):
+                    sent = sent.rstrip()
+                    if not sent:
+                        tokens.append([])
+                        text_offsets.append([])
+                        sub2words.append([])
+                        word_alignments.append([])
+                        annotation_mappers.append([])
+                        continue
+
+                    subwords, offset = tokenize_sent(sent, tokenizer)
+                    annotation_mappers.append(list(zip(subwords, [o[0] for o in offset], [o[1] for o in offset])))
+                    word_alignment, sub2word = find_word_alignment(subwords)
+
+                    tokens.append(subwords)
+                    text_offsets.append(offset)
+                    sub2words.append(sub2word)
+                    word_alignments.append(word_alignment)
+
+                    # find title
+                    if line_id == 4:
+                        pos = sent.find("-jawiki")
+                        title = sent[:pos]
+
+                data = {
+                    "page_id": page_id,
+                    "page_title": title,
+                    "category": category,
+                    "tokens": tokens,
+                    "text_offsets": text_offsets,
+                    "word_alignments": word_alignments,
+                    "sub2word": sub2word,
+                }
+
+                if page_id in anns:
+                    nes, _ = annotation_mapper(anns[page_id], annotation_mappers)
+                    data["nes"] = nes
+
+            yield cls(None, params=data)
 
     @classmethod
     def from_shinra2020_format(
@@ -145,6 +245,10 @@ class ShinraData(object):
 
             yield cls(attributes, params=data)
 
+    def add_linkpage(self, pages):
+        for ne, page in zip(self.nes, pages):
+            ne["link_page_id"] = int(page)
+
     # iobs = [sents1, sents2, ...]
     # sents1 = [[iob1_attr1, iob2_attr1, ...], [iob1_attr2, iob2_attr2, ...], ...]
     def add_nes_from_iob(self, iobs):
@@ -194,6 +298,33 @@ class ShinraData(object):
                                 "offset": text_offsets[word2subword[token_idx-1]][0]
                             }
                         }
+
+    @property
+    def entity_linking_inputs(self):
+        dataset = []
+        for ne in self.nes:
+            mention = ne['text_offset']['text']
+            start_line, start_off = ne['token_offset']['start']['line_id'], ne['token_offset']['start']['offset']
+            end_line, end_off = ne['token_offset']['end']['line_id'], ne['token_offset']['end']['offset']
+
+            if start_line == end_line:
+                mention_tokens = self.tokens[start_line][start_off:end_off]
+                left_context = [token for tokens in self.tokens[:start_line] for token in tokens] + self.tokens[start_line][:start_off]
+                right_context = self.tokens[start_line][end_off:] + [token for tokens in self.tokens[start_line+1:] for token in tokens]
+            else:
+                mention_tokens = self.tokens[start_line][start_off:] + self.tokens[end_line][:end_off]
+                left_context = [token for tokens in self.tokens[:start_line] for token in tokens] + self.tokens[start_line][:start_off]
+                right_context = self.tokens[end_line][end_off:] + [token for tokens in self.tokens[end_line+1:] for token in tokens]
+
+            dataset.append({
+                "left_context": left_context,
+                "mention": mention_tokens,
+                "right_context": right_context,
+                "link_page_id": int(ne["link_page_id"]) if "link_page_id" in ne else None,
+                "annotation": ne
+            })
+
+        return dataset
 
 
     @property
