@@ -26,7 +26,7 @@ class NearestNeighborSearch(object):
             self.index = faiss.index_cpu_to_gpu(res, gpu_id, self.index)
 
         self.page_ids = []
-        self.reps = np.empty((total_size, dim))
+        self.reps = np.empty((total_size, dim), dtype=np.float32)
         self.cnt = 0
 
     def load_index(self, save_dir):

@@ -1,6 +1,8 @@
+import argparse
+
 import numpy as np
 
-from entity_linking.dataset import EntityLinkingDataset
+from dataset import EntityLinkingDataset
 
 # args.max_ctxt_len, args.max_title_len, args.max_desc_len
 def entity_linking_for_shinradata(
@@ -26,3 +28,16 @@ def entity_linking_for_shinradata(
     dataset.add_linkpage(cross_preds)
 
     return dataset
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+
+    # for dataset
+    parser.add_argument("--input_path", type=str, help="mention dataset path")
+    parser.add_argument("--category", type=str, help="mention dataset path")
+    parser.add_argument("--output_path", type=str, help="mention dataset path")
+
+    args = parser.parse_args()
+
+    return args

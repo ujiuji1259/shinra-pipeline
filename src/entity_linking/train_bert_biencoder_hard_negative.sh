@@ -3,7 +3,7 @@ CAND_DATASET=/data/pages_preprocessed_for_bert-base-japanese.pkl
 NEG_PATH=/data/data_with_negatives
 MODEL_PATH_PREFIX=/models/bert_biencoder_with_negatives_4
 
-CUDA_VISIBLE_DEVICES=1,2 python train_bert_biencoder.py \
+CUDA_VISIBLE_DEVICES=0,1 python train_bert_biencoder.py \
     --model_name cl-tohoku/bert-base-japanese \
     --mention_dataset ${DATASET_PATH_PREFIX}.jsonl \
     --mention_index ${DATASET_PATH_PREFIX}_index.npy \

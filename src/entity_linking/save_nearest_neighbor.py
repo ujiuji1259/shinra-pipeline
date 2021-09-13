@@ -1,6 +1,5 @@
 import sys
 sys.path.append('../')
-from line_profiler import LineProfiler
 import argparse
 from logging import getLogger, StreamHandler, DEBUG, Formatter, FileHandler
 
@@ -11,7 +10,7 @@ from transformers import AutoTokenizer, AutoModel
 import apex
 from apex import amp
 
-from dataloader import MentionDataset, CandidateDataset
+from dataset import MentionDataset, CandidateDataset
 from bert_generator import BertBiEncoder, BertCandidateGenerator
 from utils.util import to_parallel, to_fp16, save_model
 
@@ -101,7 +100,6 @@ def main():
         device,
         model_path=args.model_path,
         use_mlflow=args.mlflow,
-        builder_gpu=args.builder_gpu,
         logger=logger)
 
     if args.fp16:

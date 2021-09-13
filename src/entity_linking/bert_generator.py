@@ -139,11 +139,8 @@ class BertCandidateGenerator(object):
           output_file,
           index_output_file,
           batch_size=32,
-          max_ctxt_len=32,
-          max_title_len=50,
-          max_desc_len=100,
+          NNs=100,
           traindata_size=1000000,
-          NNs=64,
          ):
         dataloader = DataLoader(mention_dataset, batch_size=batch_size, shuffle=True, collate_fn=my_collate_fn_json, num_workers=2)
 
@@ -151,7 +148,6 @@ class BertCandidateGenerator(object):
         total = 0
         trues = 0
         index = [0]
-        steps = 0
         with open(output_file, 'w') as fout:
             with torch.no_grad():
                 for input_ids, labels, lines in dataloader:
@@ -161,7 +157,7 @@ class BertCandidateGenerator(object):
 
                     mention_reps = self.model(inputs, input_mask, is_mention=True).detach().cpu().numpy()
 
-                    candidates_pageids, sims = self.searcher.search(mention_reps, 100)
+                    candidates_pageids, sims = self.searcher.search(mention_reps, NNs)
 
                     for i in range(len(lines)):
                         lines[i]['nearest_neighbors'] = candidates_pageids[i]
@@ -176,9 +172,6 @@ class BertCandidateGenerator(object):
                     bar.update(len(lines))
                     bar.set_description(f"Recall@10: {trues/total}")
 
-                    steps += len(lines)
-                    if steps >= traindata_size:
-                        break
         index = np.array(index)
         np.save(index_output_file, index)
 
@@ -197,6 +190,8 @@ class BertCandidateGenerator(object):
 
         optimizer = optim.Adam(self.model.parameters(), lr=args.lr)
 
+        self.model.load_state_dict(torch.load(args.model_path + "_1.model"))
+
         if args.fp16:
             assert args.fp16_opt_level is not None
             self.model, optimizer = to_fp16(self.model, optimizer, args.fp16_opt_level)
@@ -205,8 +200,11 @@ class BertCandidateGenerator(object):
             self.model = to_parallel(self.model)
 
         for e in range(args.epochs):
+            if e < 2:
+                continue
+
             if args.hard_negative and args is not None:
-                if e > -1:
+                if e > 0:
                     self.build_searcher(candidate_dataset, builder_gpu=args.builder_gpu, faiss_gpu_id=args.faiss_gpu_id, max_title_len=args.max_title_len, max_desc_len=args.max_desc_len)
                     self.save_traindata_with_negative_samples(
                         mention_dataset,
@@ -239,7 +237,7 @@ class BertCandidateGenerator(object):
                 mention_reps = self.model(inputs, input_mask, is_mention=True)
 
                 pages = list(labels[:])
-                if args.hard_negative:
+                if args.hard_negative and e > 0:
                     hard_pages = []
                     for label, line in zip(labels, lines):
                         _hard_pages = []
