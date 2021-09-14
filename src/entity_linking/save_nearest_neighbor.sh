@@ -1,7 +1,7 @@
 DATASET_PATH=/data
 MODEL_PATH=/models
 
-CUDA_VISIBLE_DEVICES=2 python save_nearest_neighbor.py \
+CUDA_VISIBLE_DEVICES=0 python save_nearest_neighbor.py \
     --model_name cl-tohoku/bert-base-japanese \
     --model_path ${MODEL_PATH}/bert_biencoder_with_negatives_4_1.model \
     --index_path ${MODEL_PATH}/index_negs_1 \

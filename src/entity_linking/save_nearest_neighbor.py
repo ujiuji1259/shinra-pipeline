@@ -119,11 +119,8 @@ def main():
         args.output_path,
         args.index_output_path,
         batch_size=args.batch_size,
-        max_ctxt_len=args.max_ctxt_len,
-        max_title_len=args.max_title_len,
-        max_desc_len=args.max_desc_len,
-        traindata_size=args.traindata_size,
         NNs=args.NNs,
+        traindata_size=args.traindata_size,
     )
 
 

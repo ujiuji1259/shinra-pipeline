@@ -142,7 +142,7 @@ class BertCandidateGenerator(object):
           NNs=100,
           traindata_size=1000000,
          ):
-        dataloader = DataLoader(mention_dataset, batch_size=batch_size, shuffle=True, collate_fn=my_collate_fn_json, num_workers=2)
+        dataloader = DataLoader(mention_dataset, batch_size=batch_size, shuffle=False, collate_fn=my_collate_fn_json, num_workers=2)
 
         bar = tqdm(total=traindata_size)
         total = 0
@@ -167,10 +167,10 @@ class BertCandidateGenerator(object):
                         index.append(index[-1] + len(output))
 
                         total += 1
-                        trues += int(lines[i]['linkpage_id'] in lines[i]['nearest_neighbors'])
+                        #trues += int(lines[i]['linkpage_id'] in lines[i]['nearest_neighbors'])
 
                     bar.update(len(lines))
-                    bar.set_description(f"Recall@10: {trues/total}")
+                    #bar.set_description(f"Recall@10: {trues/total}")
 
         index = np.array(index)
         np.save(index_output_file, index)
@@ -212,17 +212,14 @@ class BertCandidateGenerator(object):
                         args.path_for_NN + f"/{e}_index.npy",
                         batch_size=args.bsz,
                         # batch_size=512,
-                        max_ctxt_len=args.max_ctxt_len,
-                        max_title_len=args.max_title_len,
-                        max_desc_len=args.max_desc_len,
-                        traindata_size=args.traindata_size,
                         NNs=100,
+                        traindata_size=args.traindata_size,
                     )
                     index = np.load(args.path_for_NN + f"/{e}_index.npy")
-                    mention_dataset = MentionDataset(args.path_for_NN + f"/{e}.jsonl", index, mention_tokenizer, preprocessed=args.mention_preprocessed, return_json=True, without_context=args.without_context)
+                    mention_dataset = MentionDataset(args.path_for_NN + f"/{e}.jsonl", index, mention_tokenizer, preprocessed=args.mention_preprocessed, return_json=True, without_context=args.without_context, use_index=False)
 
             #mention_batch = mention_dataset.batch(batch_size=batch_size, random_bsz=random_bsz, max_ctxt_len=max_ctxt_len)
-            dataloader = DataLoader(mention_dataset, batch_size=args.bsz, shuffle=True, collate_fn=my_collate_fn_json, num_workers=8)
+            dataloader = DataLoader(mention_dataset, batch_size=args.bsz, shuffle=False, collate_fn=my_collate_fn_json, num_workers=8)
             bar = tqdm(total=args.traindata_size)
             for step, (input_ids, labels, lines) in enumerate(dataloader):
                 if self.logger:

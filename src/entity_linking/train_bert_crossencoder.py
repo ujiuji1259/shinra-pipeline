@@ -99,7 +99,7 @@ def main():
     mention_tokenizer.add_special_tokens({"additional_special_tokens": ["[M]", "[/M]"]})
 
     index = np.load(args.mention_index)
-    mention_dataset = MentionDataset(args.mention_dataset, index, mention_tokenizer, preprocessed=args.mention_preprocessed, return_json=True, without_context=args.without_context)
+    mention_dataset = MentionDataset(args.mention_dataset, index, mention_tokenizer, preprocessed=args.mention_preprocessed, return_json=True, without_context=args.without_context, use_index=False)
     #mention_dataset = MentionDataset2(args.mention_dataset, mention_tokenizer, preprocessed=args.mention_preprocessed)
     candidate_dataset = CandidateDataset(args.candidate_dataset, mention_tokenizer, preprocessed=args.candidate_preprocessed, without_context=args.without_context)
 

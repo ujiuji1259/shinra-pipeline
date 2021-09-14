@@ -1,17 +1,21 @@
+DATASET_PATH_PREFIX=/data/training_data_preprocessd_for_bert-base-japanese_1M_NNs
+CAND_DATASET=/data/pages_preprocessed_for_bert-base-japanese.pkl
+MODEL_PATH=/models/bert_crossencoder_with_negative.model
+
 export CUDA_VISIBLE_DEVICES=1,0
 
-python train_bert_crossencoder.py \
+CUDA_VISIBLE_DEVICES=0,1 python train_bert_crossencoder.py \
     --model_name cl-tohoku/bert-base-japanese \
-    --mention_dataset /data1/ujiie/wiki_resource/training_data_preprocessed_for_bert-base-japanese-NN100_context64.jsonl \
-    --mention_index /data1/ujiie/wiki_resource/training_data_preprocessed_for_bert-base-japanese-NN100_context64_index.npy \
-    --candidate_dataset /data1/ujiie/wiki_resource/pages_preprocessed_for_bert-base-japanese.pkl \
-    --model_path /home/is/ujiie/wiki_en/models/bert_crossencoder_negative5_batch8_context64.model \
+    --mention_dataset ${DATASET_PATH_PREFIX}.jsonl \
+    --mention_index ${DATASET_PATH_PREFIX}_index.npy \
+    --candidate_dataset ${CAND_DATASET} \
+    --model_path ${MODEL_PATH} \
     --candidate_preprocessed \
     --mention_preprocessed \
-    --lr 1e-5 \
-    --negatives 5 \
-    --batch_size 8 \
-    --max_ctxt_len 64 \
+    --lr 2e-5 \
+    --negatives 100 \
+    --batch_size 1 \
+    --max_ctxt_len 32 \
     --max_title_len -1 \
     --max_desc_len 128 \
     --traindata_size 1000000 \
@@ -19,9 +23,10 @@ python train_bert_crossencoder.py \
     --model_save_interval 10000 \
     --grad_acc_step 1 \
     --max_grad_norm 1.0 \
-    --epochs 4 \
+    --epochs 1 \
     --fp16 \
     --fp16_opt_level O1 \
     --parallel \
-    --logging
+    --logging \
+    --seed 42
 

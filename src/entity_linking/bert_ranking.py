@@ -1,4 +1,5 @@
 import sys
+import os
 sys.path.append('../')
 import json
 
@@ -14,8 +15,8 @@ import apex
 from apex import amp
 import numpy as np
 
-from entity_linking.dataset import my_collate_fn, my_collate_fn_json
-from entity_linking.searcher import NearestNeighborSearch
+from dataset import my_collate_fn, my_collate_fn_json
+from searcher import NearestNeighborSearch
 from utils.util import get_scheduler, to_fp16, save_model, to_parallel
 
 
@@ -26,7 +27,7 @@ class BertCrossEncoder(nn.Module):
         self.linear_layer = nn.Linear(768, 1)
 
     def forward(self, input_ids, attention_mask):
-        bertrep, _ = self.model(input_ids, attention_mask=attention_mask)
+        bertrep = self.model(input_ids, attention_mask=attention_mask).last_hidden_state
         bertrep = bertrep[:, 0, :]
         output = self.linear_layer(bertrep)
 
@@ -84,13 +85,15 @@ class BertCandidateRanker(object):
                 NN = [str(n) for n in NN]
 
             negative_samples = [[n, s] for n, s in zip(NN, score) if n != label]
-            negative_scores = torch.tensor([s[1] for s in negative_samples])
-            negative_idx = torch.multinomial(negative_scores, negatives).tolist()
+
+            #negative_scores = torch.tensor([s[1] for s in negative_samples])
+            #negative_idx = torch.multinomial(negative_scores, negatives).tolist()
+            negative_idx = list(range(len(negative_samples)))
 
             pages.extend([negative_samples[n][0] for n in negative_idx])
-            output_labels.extend([1]*negatives)
+            output_labels.extend([0]*negatives)
 
-        return pages, output_labels
+        return pages[:negatives], output_labels[:negatives]
 
     def calculate_intraining_accuracy(self, scores):
         idx = torch.argmax(scores, dim=-1).detach().cpu().tolist()
@@ -117,7 +120,7 @@ class BertCandidateRanker(object):
             self.model = to_parallel(self.model)
 
         for e in range(args.epochs):
-            dataloader = DataLoader(mention_dataset, batch_size=args.batch_size, shuffle=True, collate_fn=my_collate_fn_json, num_workers=2)
+            dataloader = DataLoader(mention_dataset, batch_size=args.batch_size, shuffle=True, collate_fn=my_collate_fn_json, num_workers=os.cpu_count())
             bar = tqdm(total=args.traindata_size)
             for step, (input_ids, labels, lines) in enumerate(dataloader):
                 if self.logger:
@@ -127,7 +130,7 @@ class BertCandidateRanker(object):
 
                 NNs = [l["nearest_neighbors"] for l in lines]
                 scores = [l['similarity'] for l in lines]
-                pages, output_label = self.create_training_samples(labels, NNs, scores, negatives)
+                pages, output_label = self.create_training_samples(labels, NNs, scores, args.negatives)
                 # pages = list(labels)
                 # for nn in lines[0]["nearest_neighbors"]:
                 #     if str(nn) not in pages:
@@ -146,8 +149,7 @@ class BertCandidateRanker(object):
                     print(original_tokens)
                     while cnt < 1000:
                         cnt += 1
-                        scores = self.model(inputs, input_mask).view(-1, args.negatives+1)
-                        print(scores)
+                        scores = self.model(inputs, input_mask).view(-1, args.negatives)
 
                         target = torch.LongTensor([0]*scores.size(0)).to(self.device)
                         loss = F.cross_entropy(scores, target, reduction="mean")
@@ -180,7 +182,7 @@ class BertCandidateRanker(object):
                             if self.logger:
                                 self.logger.debug("Back propagation in step %s", step+1)
 
-                scores = self.model(inputs, input_mask).view(-1, args.negatives+1)
+                scores = self.model(inputs, input_mask).view(-1, args.negatives)
                 accuracy = self.calculate_intraining_accuracy(scores)
 
                 target = torch.LongTensor([0]*scores.size(0)).to(self.device)
