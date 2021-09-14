@@ -26,7 +26,8 @@ class NearestNeighborSearch(object):
             self.index = faiss.index_cpu_to_gpu(res, gpu_id, self.index)
 
         self.page_ids = []
-        self.reps = np.empty((total_size, dim))
+        self.reps = np.empty((total_size, dim), dtype=np.float32)
+        #self.reps = np.random.rand(total_size, dim).astype(np.float32)
         self.cnt = 0
 
     def load_index(self, save_dir):
@@ -58,6 +59,7 @@ class NearestNeighborSearch(object):
         if self.ivf:
             self.index.train(self.reps)
         self.index.add(self.reps)
+        #self.page_ids.extend(["0" for _ in range(self.reps.shape[0] - len(self.page_ids))])
 
         del self.reps
 
@@ -74,6 +76,5 @@ if __name__ == "__main__":
     searcher = NearestNeighborSearch(768, use_gpu=True)
     searcher.add_entries(xb, page_ids)
     candidates = searcher.search(xb[:10], 10)
-    print(candidates)
 
     searcher.save_index("/home/is/ujiie/wiki_en/models/base_bert_index")

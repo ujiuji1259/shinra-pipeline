@@ -1,9 +1,10 @@
 #import cProfile
 import sys
 sys.path.append('../')
-from line_profiler import LineProfiler
+import os
 import argparse
 from logging import getLogger, StreamHandler, DEBUG, Formatter, FileHandler
+import random
 
 import numpy as np
 import mlflow
@@ -12,11 +13,21 @@ from transformers import AutoTokenizer, AutoModel
 import apex
 from apex import amp
 
-from dataloader import MentionDataset, CandidateDataset
+from dataset import MentionDataset, CandidateDataset
 from bert_ranking import BertCrossEncoder, BertCandidateRanker
 from utils.util import to_parallel, save_model
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
+
+def set_seed(seed):
+    random.seed(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
 def parse_args():
@@ -33,7 +44,7 @@ def parse_args():
     parser.add_argument("--lr", type=float, help="learning rate")
     parser.add_argument("--batch_size", type=int, help="batch_size")
     parser.add_argument("--warmup_propotion", type=float, help="learning rate")
-    parser.add_argument("--gradient_accumulation_steps", type=int, help="learning rate")
+    parser.add_argument("--grad_acc_step", type=int, help="learning rate")
     parser.add_argument("--max_grad_norm", default=1.0, type=float)
     parser.add_argument("--model_save_interval", default=None, type=int, help="batch size")
     parser.add_argument("--max_ctxt_len", type=int, help="maximum context length")
@@ -48,8 +59,11 @@ def parse_args():
     parser.add_argument('--fp16_opt_level', type=str, default="O1")
     parser.add_argument("--logging", action="store_true", help="whether using inbatch negative")
     parser.add_argument("--log_file", type=str, help="whether using inbatch negative")
+    parser.add_argument("--seed", type=int, help="whether using inbatch negative")
 
     args = parser.parse_args()
+
+    set_seed(args.seed)
 
     if args.mlflow:
         mlflow.start_run()
@@ -61,9 +75,13 @@ def parse_args():
 
     if args.logging:
         logger = getLogger(__name__)
+        #handler = StreamHandler()
 
         logger.setLevel(DEBUG)
+        #handler.setLevel(DEBUG)
         formatter = Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        #handler.setFormatter(formatter)
+        #logger.addHandler(handler)
 
         if args.log_file:
             fh = FileHandler(filename=args.log_file)
@@ -81,7 +99,8 @@ def main():
     mention_tokenizer.add_special_tokens({"additional_special_tokens": ["[M]", "[/M]"]})
 
     index = np.load(args.mention_index)
-    mention_dataset = MentionDataset(args.mention_dataset, index, mention_tokenizer, preprocessed=args.mention_preprocessed, return_json=True, without_context=args.without_context)
+    mention_dataset = MentionDataset(args.mention_dataset, index, mention_tokenizer, preprocessed=args.mention_preprocessed, return_json=True, without_context=args.without_context, use_index=False)
+    #mention_dataset = MentionDataset2(args.mention_dataset, mention_tokenizer, preprocessed=args.mention_preprocessed)
     candidate_dataset = CandidateDataset(args.candidate_dataset, mention_tokenizer, preprocessed=args.candidate_preprocessed, without_context=args.without_context)
 
     bert = AutoModel.from_pretrained(args.model_name)
@@ -99,23 +118,8 @@ def main():
         model.train(
             mention_dataset,
             candidate_dataset,
-            lr=args.lr,
-            batch_size=args.batch_size,
-            max_ctxt_len=args.max_ctxt_len,
-            max_title_len=args.max_title_len,
-            max_desc_len=args.max_desc_len,
-            traindata_size=args.traindata_size,
-            model_save_interval=args.model_save_interval,
-            grad_acc_step=args.gradient_accumulation_steps,
-            max_grad_norm=args.max_grad_norm,
-            epochs=args.epochs,
-            warmup_propotion=args.warmup_propotion,
-            fp16=args.fp16,
-            fp16_opt_level=args.fp16_opt_level,
-            parallel=args.parallel,
-            negatives=args.negatives,
-            debug=args.debug,
             tokenizer=mention_tokenizer,
+            args=args,
         )
 
     except KeyboardInterrupt:

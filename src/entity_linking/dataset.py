@@ -6,6 +6,7 @@ import random
 import fasteners
 
 from torch.utils.data import Dataset
+from tqdm import tqdm
 
 
 class EntityLinkingDataset(Dataset):
@@ -112,7 +113,7 @@ class CandidateDataset(object):
 
 
 class MentionDataset(Dataset):
-    def __init__(self, fn, index, tokenizer, preprocessed, max_ctxt_len=32, return_json=False, without_context=False):
+    def __init__(self, fn, index, tokenizer, preprocessed, max_ctxt_len=32, return_json=False, without_context=False, use_index=True):
         self.fn = fn
         self.f = open(fn, 'r')
         self.index = index
@@ -123,6 +124,32 @@ class MentionDataset(Dataset):
         self.return_json = return_json
         self.without_context = without_context
 
+        self.use_index = use_index
+        if not self.use_index:
+            self.data = self._read(fn)
+
+    def _read(self, fn):
+        data = []
+        with open(fn, "r") as f:
+            bar = tqdm(total=9000000)
+            for line in f:
+                line = line.rstrip()
+                if not line:
+                    continue
+                line = json.loads(line)
+                input_seq, input_label = self._preprocess(line)
+                data.append({
+                    "input_seq": input_seq,
+                    "input_label": input_label,
+                })
+                if self.return_json:
+                    data[-1]["line"] = {'nearest_neighbors': line['nearest_neighbors']} if 'nearest_neighbors' in line else {'nearest_neighbors': ["10000000"]*100}
+                    data[-1]["line"]['similarity'] = line['similarity'] if 'similarity' in line else [0]*100
+
+                bar.update(1)
+        return data
+
+
     def __del__(self):
         self.f.close()
 
@@ -130,15 +157,22 @@ class MentionDataset(Dataset):
         return self.datasize
 
     def __getitem__(self, item):
-        with fasteners.InterProcessLock(self.fn):
-            self.f.seek(self.index[item])
-            line = self.f.read(self.index[item+1] - self.index[item])[:-1]
-        line = json.loads(line)
-        input_seq, input_label = self._preprocess(line)
+        if self.use_index:
+            with fasteners.InterProcessLock(self.fn):
+                self.f.seek(self.index[item])
+                line = self.f.read(self.index[item+1] - self.index[item])[:-1]
+            line = json.loads(line)
+            input_seq, input_label = self._preprocess(line)
+
+        else:
+            input_ = self.data[item]
+            input_seq, input_label = input_["input_seq"], input_["input_label"]
+            line = None if "line" not in input_ else input_['line']
+
         if self.return_json:
             return input_seq, input_label, line
-
-        return input_seq, input_label
+        else:
+            return input_seq, input_label
 
     def _preprocess(self, line):
         if self.preprocessed:
