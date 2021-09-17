@@ -2,3 +2,5 @@
 .git/
 .vscode/
 models/
+new_models/
+outputs/
