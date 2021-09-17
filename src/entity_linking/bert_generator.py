@@ -113,6 +113,9 @@ class BertCandidateGenerator(object):
         page_ids = list(candidate_dataset.data.keys())
         batch_size = 1024
 
+        if hasattr(self, "searcher"):
+            del self.searcher
+            torch.cuda.empty_cache()
         self.searcher = NearestNeighborSearch(768, len(page_ids), use_gpu=builder_gpu, gpu_id=faiss_gpu_id)
 
         with torch.no_grad():

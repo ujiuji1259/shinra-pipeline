@@ -12,7 +12,8 @@ from transformers import AutoTokenizer, AutoModel
 import apex
 from apex import amp
 
-from dataset import ShinraDataset, CandidateDataset
+from utils.dataset import ShinraData
+from dataset import CandidateDataset, EntityLinkingDataset
 from bert_generator import BertBiEncoder, BertCandidateGenerator
 from bert_ranking import BertCrossEncoder, BertCandidateRanker
 from utils.util import to_parallel, to_fp16, save_model
@@ -118,6 +119,7 @@ def parse_args():
     parser.add_argument("--index_path", type=str, help="model save path")
     parser.add_argument("--load_index", action="store_true", help="model save path")
     parser.add_argument("--builder_gpu", action="store_true", help="bert-name used for biencoder")
+    parser.add_argument("--faiss_gpu_id", type=int, help="bert-name used for biencoder")
 
     # for config
     parser.add_argument("--mlflow", action="store_true", help="whether using inbatch negative")
@@ -170,7 +172,7 @@ def main():
     candidate_bert = AutoModel.from_pretrained(args.model_name)
 
     biencoder = BertBiEncoder(mention_bert, candidate_bert)
-    biencoder.load_state_dict(torch.load(args.encoder_path))
+    biencoder.load_state_dict(torch.load(args.biencoder_path))
 
     cross_bert = AutoModel.from_pretrained(args.model_name)
     cross_bert.resize_token_embeddings(len(mention_tokenizer))
@@ -189,7 +191,7 @@ def main():
     cross_encoder_model = BertCandidateRanker(
         crossencoder,
         device,
-        model_path=args.cross_model_path,
+        model_path=args.crossencoder_path,
         use_mlflow=args.mlflow,
         logger=logger)
 
@@ -208,38 +210,43 @@ def main():
         model.build_searcher(
             candidate_dataset,
             builder_gpu=args.builder_gpu,
+            faiss_gpu_id=args.faiss_gpu_id,
             max_title_len=args.max_title_len,
             max_desc_len=args.max_desc_len
         )
         model.save_index(args.index_path)
 
-    mention_dataset = ShinraDataset(args.mention_dataset, args.category, mention_tokenizer, max_ctxt_len=args.max_ctxt_len, without_context=args.without_context, is_test=True)
-    original_annotation = [a["annotation"] for a in mention_dataset.data]
+    shinra_dataset = ShinraData.from_linkjp_format(args.input_path, args.category, mention_tokenizer)
+    with open(args.output_path, 'w') as f:
+        for data in shinra_dataset:
+            el_inputs = data.entity_linking_inputs
+            original_annotation = [a["annotation"] for a in el_inputs]
 
-    preds, bi_scores, trues, input_ids = model.generate_candidates(mention_dataset)
-    cross_scores, tokens = cross_encoder_model.predict(
-        input_ids, preds, candidate_dataset,
-        max_title_len=args.max_title_len,
-        max_desc_len=args.max_desc_len)
-    #rank = np.argsort(np.array(cross_scores), axis=1).tolist()
-    rank = np.argsort(np.array(cross_scores), axis=1)[:, ::-1].tolist()
-    cross_preds = [[[p[s], sc[s]] for s in ss] for ss, p, sc in zip(rank, preds, cross_scores)]
+            mention_dataset = EntityLinkingDataset(el_inputs, mention_tokenizer, args.max_ctxt_len)
 
-    assert len(cross_preds) == len(original_annotation)
+            preds, bi_scores, trues, input_ids = model.generate_candidates(mention_dataset)
+            cross_scores, tokens = cross_encoder_model.predict(
+                input_ids, preds, candidate_dataset,
+                max_title_len=args.max_title_len,
+                max_desc_len=args.max_desc_len)
+            #rank = np.argsort(np.array(cross_scores), axis=1).tolist()
+            rank = np.argsort(np.array(cross_scores), axis=1)[:, ::-1].tolist()
+            cross_preds = [[[p[s], sc[s]] for s in ss] for ss, p, sc in zip(rank, preds, cross_scores)]
 
-    for data, preds in zip(original_annotation, cross_preds):
-        data["link_page_id"] = str(preds[0][0])
-        data["score"] = str(preds[0][1])
-        """
-        data["link_type"] = {
-            "later_name": False,
-            "part_of": False,
-            "derivation_of": False
-        }
-        """
+            assert len(cross_preds) == len(original_annotation)
 
-    with open(args.output_path + f'/{args.category}.jsonl', 'w') as f:
-        f.write("\n".join([json.dumps(data, ensure_ascii=False) for data in original_annotation]))
+            for output_data, preds in zip(original_annotation, cross_preds):
+                output_data["link_page_id"] = str(preds[0][0])
+                output_data["score"] = str(preds[0][1])
+                """
+                data["link_type"] = {
+                    "later_name": False,
+                    "part_of": False,
+                    "derivation_of": False
+                }
+                """
+
+                f.write("\n".join([json.dumps(data, ensure_ascii=False) for data in original_annotation]))
 
 
 if __name__ == "__main__":

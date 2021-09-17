@@ -1,15 +1,20 @@
-python predict_for_leader_board.py \
+DATA_PATH=/data
+MODEL_PATH=/models
+OUTPUT_PATH=/workspace/outputs
+CATEGORY=Airport
+
+python predict.py \
     --model_name cl-tohoku/bert-base-japanese \
-    --model_path /home/is/ujiie/wiki_en/models/bert_biencoder_without_context.model \
-    --output_path /home/is/ujiie/wiki_en/results/sample_wc \
-    --cross_model_path /home/is/ujiie/wiki_en/models/bert_crossencoder_negative5_batch8_without_context.model \
-    --index_path /home/is/ujiie/wiki_en/models/bert_base_without_context_index \
-    --load_index \
-    --candidate_dataset /data1/ujiie/wiki_resource/pages_preprocessed_for_bert-base-japanese.pkl \
+    --biencoder_path ${MODEL_PATH}/bert_biencoder_with_negatives_4_1.model \
+    --output_path ${OUTPUT_PATH}/${CATEGORY}.json \
+    --crossencoder_path ${MODEL_PATH}/bert_crossencoder_with_negative.model \
+    --index_path ${MODEL_PATH}/bert_base_without_context_index \
+    --candidate_dataset ${DATA_PATH}/pages_preprocessed_for_bert-base-japanese.pkl \
     --candidate_preprocessed \
-    --mention_dataset /data1/ujiie/shinra/EN/linkjp-sample-210402 \
-    --category Airport \
+    --input_path ${DATA_PATH}/linkjp-sample-210402 \
+    --category ${CATEGORY} \
     --builder_gpu \
+    --faiss_gpu_id 0 \
     --max_ctxt_len 32 \
     --max_title_len -1 \
     --max_desc_len 128 \
