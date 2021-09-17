@@ -1,6 +1,5 @@
 import sys
 sys.path.append('../')
-from line_profiler import LineProfiler
 import argparse
 from logging import getLogger, StreamHandler, DEBUG, Formatter, FileHandler
 import random
