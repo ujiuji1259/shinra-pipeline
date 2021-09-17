@@ -119,11 +119,11 @@ class BertCandidateRanker(object):
         return accuracy
 
     def train(self,
-              mention_dataset,
-              candidate_dataset,
-              tokenizer=None,
-              args=None,
-             ):
+            mention_dataset,
+            candidate_dataset,
+            tokenizer=None,
+            args=None,
+        ):
 
 
         optimizer = optim.Adam(self.model.parameters(), lr=args.lr)
@@ -139,7 +139,7 @@ class BertCandidateRanker(object):
             self.model = to_parallel(self.model)
 
         for e in range(args.epochs):
-            dataloader = DataLoader(mention_dataset, batch_size=args.batch_size, shuffle=True, collate_fn=my_collate_fn_json, num_workers=os.cpu_count())
+            dataloader = DataLoader(mention_dataset, batch_size=args.batch_size, shuffle=False, collate_fn=my_collate_fn_json, num_workers=os.cpu_count())
             bar = tqdm(total=args.traindata_size)
             for step, (input_ids, labels, lines) in enumerate(dataloader):
                 if self.logger:
@@ -162,54 +162,20 @@ class BertCandidateRanker(object):
                                         for token in inputs], padding_value=0).t().to(self.device)
                 input_mask = inputs > 0
 
-                if args.debug:
-                    cnt = 0
-                    original_tokens = [tokenizer.convert_ids_to_tokens(i) for i in inputs]
-                    print(original_tokens)
-                    while cnt < 1000:
-                        cnt += 1
-                        scores = self.model(inputs, input_mask).view(-1, args.negatives)
-
-                        target = torch.LongTensor([0]*scores.size(0)).to(self.device)
-                        #loss = F.cross_entropy(scores, target, reduction="mean")
-                        loss = loss_fn(scores, target)
-                        #target = torch.tensor(output_label, dtype=float).to(self.device)
-                        #loss = loss_fn(scores, target.unsqueeze(1))
-
-                        if self.logger:
-                            self.logger.debug("Train loss: %s", loss.item())
-
-
-                        if args.fp16:
-                            with amp.scale_loss(loss, optimizer) as scaled_loss:
-                                scaled_loss.backward()
-                        else:
-                            loss.backward()
-
-
-                        if (step + 1) % args.grad_acc_step == 0:
-                            if args.fp16:
-                                torch.nn.utils.clip_grad_norm_(
-                                    amp.master_params(optimizer), args.max_grad_norm
-                                )
-                            else:
-                                torch.nn.utils.clip_grad_norm_(
-                                    self.model.parameters(), args.max_grad_norm
-                                )
-                            optimizer.step()
-                            optimizer.zero_grad()
-
-                            if self.logger:
-                                self.logger.debug("Back propagation in step %s", step+1)
-
                 scores = self.model(inputs, input_mask).view(-1, args.negatives)
                 accuracy = self.calculate_intraining_accuracy(scores)
 
                 target = torch.LongTensor([0]*scores.size(0)).to(self.device)
                 #loss = F.cross_entropy(scores, target, reduction="mean")
                 loss = loss_fn(scores, target)
+                if loss.item() < 1e-24:
+                    continue
                 #target = torch.tensor(output_label, dtype=float).to(self.device)
                 #loss = loss_fn(scores, target.unsqueeze(1))
+                if torch.isnan(loss):
+                    print(inputs)
+                    print(scores)
+                    save_model(self.model, self.model_path)
 
                 if self.logger:
                     self.logger.debug("Train loss: %s", loss.item())
