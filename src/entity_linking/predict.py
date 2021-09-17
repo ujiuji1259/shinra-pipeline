@@ -13,11 +13,11 @@ from transformers import AutoTokenizer, AutoModel
 import apex
 from apex import amp
 
-from dataloader import ShinraDataset, CandidateDataset
+from dataset import ShinraDataset, CandidateDataset
 from bert_generator import BertBiEncoder, BertCandidateGenerator
 from bert_ranking import BertCrossEncoder, BertCandidateRanker
 from utils.util import to_parallel, to_fp16, save_model
-from utils.metric import calculate_recall
+
 
 def parse_input_tokens_without_context(tokens):
     mention = ""
@@ -202,86 +202,33 @@ def main():
         model.build_searcher(candidate_dataset, max_title_len=args.max_title_len, max_desc_len=args.max_desc_len)
         model.save_index(args.index_path)
 
-    if args.category == "all":
-        for category in all_categories:
-            mention_dataset = ShinraDataset(args.mention_dataset, category, mention_tokenizer, max_ctxt_len=args.max_ctxt_len, without_context=args.without_context, is_test=True)
-            original_annotation = [a["annotation"] for a in mention_dataset.data]
+    mention_dataset = ShinraDataset(args.mention_dataset, args.category, mention_tokenizer, max_ctxt_len=args.max_ctxt_len, without_context=args.without_context, is_test=True)
+    original_annotation = [a["annotation"] for a in mention_dataset.data]
 
-            preds, bi_scores, trues, input_ids = model.generate_candidates(mention_dataset)
-            cross_scores, tokens = cross_encoder_model.predict(
-                input_ids, preds, candidate_dataset,
-                max_title_len=args.max_title_len,
-                max_desc_len=args.max_desc_len)
-            #rank = np.argsort(np.array(cross_scores), axis=1).tolist()
-            rank = np.argsort(np.array(cross_scores), axis=1)[:, ::-1].tolist()
-            cross_preds = [[[p[s], sc[s]] for s in ss] for ss, p, sc in zip(rank, preds, cross_scores)]
+    preds, bi_scores, trues, input_ids = model.generate_candidates(mention_dataset)
+    cross_scores, tokens = cross_encoder_model.predict(
+        input_ids, preds, candidate_dataset,
+        max_title_len=args.max_title_len,
+        max_desc_len=args.max_desc_len)
+    #rank = np.argsort(np.array(cross_scores), axis=1).tolist()
+    rank = np.argsort(np.array(cross_scores), axis=1)[:, ::-1].tolist()
+    cross_preds = [[[p[s], sc[s]] for s in ss] for ss, p, sc in zip(rank, preds, cross_scores)]
 
-            assert len(cross_preds) == len(original_annotation)
+    assert len(cross_preds) == len(original_annotation)
 
-            for data, preds in zip(original_annotation, cross_preds):
-                data["link_page_id"] = str(preds[0][0])
-                data["score"] = str(preds[0][1])
-                """
-                data["link_type"] = {
-                    "later_name": False,
-                    "part_of": False,
-                    "derivation_of": False
-                }
-                """
+    for data, preds in zip(original_annotation, cross_preds):
+        data["link_page_id"] = str(preds[0][0])
+        data["score"] = str(preds[0][1])
+        """
+        data["link_type"] = {
+            "later_name": False,
+            "part_of": False,
+            "derivation_of": False
+        }
+        """
 
-            with open(args.output_path + f'/{category}.jsonl', 'w') as f:
-                f.write("\n".join([json.dumps(data, ensure_ascii=False) for data in original_annotation]))
-
-            """
-
-            tokens = [mention_tokenizer.convert_ids_to_tokens(t) for t in tokens]
-
-            outputs = []
-            cnt = 0
-            for dd in cross_binary:
-                output = {}
-                output["data"] = []
-                bi_true = False
-                sc_true = False
-                sc_score = -float("inf")
-                for true, bi_sc, sc in dd:
-                    token = tokens[cnt]
-                    if args.without_context:
-                        mention, title, overall_sent = parse_input_tokens_without_context(token)
-                    else:
-                        mention, title, overall_sent = parse_input_tokens(token)
-
-                    output["data"].append(
-                        {"true": true, "entity_title":title, "overall_text": overall_sent,
-                         "BiEncoder": bi_sc, "CrossEncoder": sc}
-                    )
-
-                bi_true = bi_true or true
-                if sc > sc_score:
-                    sc_score = sc
-                    sc_true = true
-
-                output["meta"] = {
-                    "mention": mention, 
-                    "generation": bi_true, "ranking": sc_true}
-
-                output["data"].sort(key=lambda x: x["CrossEncoder"])
-                outputs.append(json.dumps(output))
-
-
-            with open(args.output_path + f'/{category}.jsonl', 'w') as f:
-                f.write("\n".join(outputs))
-
-            recall = calculate_recall(trues, cross_preds, ks=[1, 10, 30, 50, 100])
-            print(category, recall)
-            """
-
-
-    else:
-        mention_dataset = ShinraDataset(args.mention_dataset, args.category, mention_tokenizer, max_ctxt_len=args.max_ctxt_len, without_context=args.without_context)
-
-        recall = model.evaluate(mention_dataset)
-        print(args.category, recall)
+    with open(args.output_path + f'/{args.category}.jsonl', 'w') as f:
+        f.write("\n".join([json.dumps(data, ensure_ascii=False) for data in original_annotation]))
 
 
 if __name__ == "__main__":
