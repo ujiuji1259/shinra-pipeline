@@ -19,6 +19,24 @@ from dataset import my_collate_fn, my_collate_fn_json
 from searcher import NearestNeighborSearch
 from utils.util import get_scheduler, to_fp16, save_model, to_parallel
 
+class CrossEntropyLoss2d(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.loss_fn = nn.NLLLoss()
+
+    # `x`と`y`はそれぞれモデル出力の値とGTの値
+    def forward(self, x, y, eps=1e-24):
+        x = torch.softmax(x, dim=1)
+        # (BATCH, C, H, W) から (C, BATCH * H * W) に並べ直す
+        #NUM_CLASSES = x.size(1)
+        #x = x.contiguous().view(-1, NUM_CLASSES)
+        # 微小値を足してからlogる※1
+        x = torch.log(x + eps)
+
+        #y = y.contiguous().view(-1, NUM_CLASSES)
+        #_, y = torch.max(y, -1)
+        return self.loss_fn(x, y)
+
 
 class BertCrossEncoder(nn.Module):
     def __init__(self, bert):
@@ -110,7 +128,8 @@ class BertCandidateRanker(object):
 
         optimizer = optim.Adam(self.model.parameters(), lr=args.lr)
 
-        loss_fn = nn.BCEWithLogitsLoss(reduction="mean")
+        #loss_fn = nn.BCEWithLogitsLoss(reduction="mean")
+        loss_fn = CrossEntropyLoss2d()
 
         if args.fp16:
             assert args.fp16_opt_level is not None
@@ -152,7 +171,8 @@ class BertCandidateRanker(object):
                         scores = self.model(inputs, input_mask).view(-1, args.negatives)
 
                         target = torch.LongTensor([0]*scores.size(0)).to(self.device)
-                        loss = F.cross_entropy(scores, target, reduction="mean")
+                        #loss = F.cross_entropy(scores, target, reduction="mean")
+                        loss = loss_fn(scores, target)
                         #target = torch.tensor(output_label, dtype=float).to(self.device)
                         #loss = loss_fn(scores, target.unsqueeze(1))
 
@@ -186,7 +206,8 @@ class BertCandidateRanker(object):
                 accuracy = self.calculate_intraining_accuracy(scores)
 
                 target = torch.LongTensor([0]*scores.size(0)).to(self.device)
-                loss = F.cross_entropy(scores, target, reduction="mean")
+                #loss = F.cross_entropy(scores, target, reduction="mean")
+                loss = loss_fn(scores, target)
                 #target = torch.tensor(output_label, dtype=float).to(self.device)
                 #loss = loss_fn(scores, target.unsqueeze(1))
 
