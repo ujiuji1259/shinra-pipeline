@@ -19,6 +19,30 @@ from bert_ranking import BertCrossEncoder, BertCandidateRanker
 from utils.util import to_parallel, to_fp16, save_model
 
 
+def entity_linking_for_shinradata(biencoder, crossencoder, mention_tokenizer, shinra_dataset, candidate_dataset, max_ctxt_len, max_title_len, max_desc_len):
+    el_inputs = shinra_dataset.entity_linking_inputs
+    original_annotation = [a["annotation"] for a in el_inputs]
+
+    mention_dataset = EntityLinkingDataset(el_inputs, mention_tokenizer, max_ctxt_len)
+
+    preds, bi_scores, trues, input_ids = biencoder.generate_candidates(mention_dataset)
+    cross_scores, tokens = crossencoder.predict(
+        input_ids, preds, candidate_dataset,
+        max_title_len=max_title_len,
+        max_desc_len=max_desc_len)
+    #rank = np.argsort(np.array(cross_scores), axis=1).tolist()
+    rank = np.argsort(np.array(cross_scores), axis=1)[:, ::-1].tolist()
+    cross_preds = [[[p[s], sc[s]] for s in ss] for ss, p, sc in zip(rank, preds, cross_scores)]
+
+    assert len(cross_preds) == len(original_annotation)
+
+    for output_data, preds in zip(original_annotation, cross_preds):
+        output_data["link_page_id"] = str(preds[0][0])
+        output_data["score"] = str(preds[0][1])
+
+    return original_annotation
+
+
 def parse_input_tokens_without_context(tokens):
     mention = ""
     overall_text = ""
@@ -204,49 +228,35 @@ def main():
     if args.mlflow:
         mlflow.end_run()
 
+    load_path = None
     if args.load_index:
-        model.load_index(args.index_path)
-    else:
-        model.build_searcher(
-            candidate_dataset,
-            builder_gpu=args.builder_gpu,
-            faiss_gpu_id=args.faiss_gpu_id,
-            max_title_len=args.max_title_len,
-            max_desc_len=args.max_desc_len
-        )
+        load_path = args.index_path
+
+    model.build_searcher(
+        candidate_dataset,
+        builder_gpu=args.builder_gpu,
+        faiss_gpu_id=args.faiss_gpu_id,
+        max_title_len=args.max_title_len,
+        max_desc_len=args.max_desc_len,
+        load_path=load_path,
+    )
+    if not args.load_index:
         model.save_index(args.index_path)
 
     shinra_dataset = ShinraData.from_linkjp_format(args.input_path, args.category, mention_tokenizer)
     with open(args.output_path, 'w') as f:
         for data in shinra_dataset:
-            el_inputs = data.entity_linking_inputs
-            original_annotation = [a["annotation"] for a in el_inputs]
-
-            mention_dataset = EntityLinkingDataset(el_inputs, mention_tokenizer, args.max_ctxt_len)
-
-            preds, bi_scores, trues, input_ids = model.generate_candidates(mention_dataset)
-            cross_scores, tokens = cross_encoder_model.predict(
-                input_ids, preds, candidate_dataset,
-                max_title_len=args.max_title_len,
-                max_desc_len=args.max_desc_len)
-            #rank = np.argsort(np.array(cross_scores), axis=1).tolist()
-            rank = np.argsort(np.array(cross_scores), axis=1)[:, ::-1].tolist()
-            cross_preds = [[[p[s], sc[s]] for s in ss] for ss, p, sc in zip(rank, preds, cross_scores)]
-
-            assert len(cross_preds) == len(original_annotation)
-
-            for output_data, preds in zip(original_annotation, cross_preds):
-                output_data["link_page_id"] = str(preds[0][0])
-                output_data["score"] = str(preds[0][1])
-                """
-                data["link_type"] = {
-                    "later_name": False,
-                    "part_of": False,
-                    "derivation_of": False
-                }
-                """
-
-                f.write("\n".join([json.dumps(data, ensure_ascii=False) for data in original_annotation]))
+            output_datas = entity_linking_for_shinradata(
+                model,
+                cross_encoder_model,
+                mention_tokenizer,
+                data,
+                candidate_dataset,
+                args.max_ctxt_len,
+                args.max_title_len,
+                args.max_desc_len)
+            for output_data in output_datas:
+                f.write(json.dumps(output_data, ensure_ascii=False) + '\n')
 
 
 if __name__ == "__main__":

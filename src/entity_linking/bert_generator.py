@@ -61,7 +61,7 @@ class BertCandidateGenerator(object):
 
         dataloader = DataLoader(mention_dataset, batch_size=256, collate_fn=my_collate_fn, num_workers=2)
         with torch.no_grad():
-            for input_ids, labels in tqdm(dataloader):
+            for input_ids, labels in dataloader:
                 if self.logger:
                     self.logger.debug("%s step", step)
                     self.logger.debug("%s data in batch", len(input_ids))
@@ -109,7 +109,8 @@ class BertCandidateGenerator(object):
                        builder_gpu=False,
                        faiss_gpu_id=None,
                        max_title_len=50,
-                       max_desc_len=100):
+                       max_desc_len=100,
+                       load_path=None):
         page_ids = list(candidate_dataset.data.keys())
         batch_size = 1024
 
@@ -117,6 +118,10 @@ class BertCandidateGenerator(object):
             del self.searcher
             torch.cuda.empty_cache()
         self.searcher = NearestNeighborSearch(768, len(page_ids), use_gpu=builder_gpu, gpu_id=faiss_gpu_id)
+
+        if load_path is not None:
+            self.load_index(load_path)
+            return
 
         with torch.no_grad():
             for start in tqdm(range(0, len(page_ids), batch_size)):

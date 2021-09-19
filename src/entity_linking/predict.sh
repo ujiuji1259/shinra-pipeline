@@ -9,6 +9,7 @@ python predict.py \
     --output_path ${OUTPUT_PATH}/${CATEGORY}.json \
     --crossencoder_path ${MODEL_PATH}/bert_crossencoder_with_negative.model \
     --index_path ${MODEL_PATH}/bert_base_without_context_index \
+    --load_index \
     --candidate_dataset ${DATA_PATH}/pages_preprocessed_for_bert-base-japanese.pkl \
     --candidate_preprocessed \
     --input_path ${DATA_PATH}/linkjp-sample-210402 \
