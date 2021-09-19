@@ -5,13 +5,12 @@ CATEGORY=Airport
 
 python predict.py \
     --model_name cl-tohoku/bert-base-japanese \
-    --biencoder_path ${MODEL_PATH}/bert_biencoder_with_negatives_4_1.model \
+    --biencoder_path ${MODEL_PATH}/mymodel.model \
     --output_path ${OUTPUT_PATH}/${CATEGORY}.json \
     --crossencoder_path ${MODEL_PATH}/bert_crossencoder_with_negative.model \
     --index_path ${MODEL_PATH}/bert_base_without_context_index \
     --load_index \
-    --candidate_dataset ${DATA_PATH}/pages_preprocessed_for_bert-base-japanese.pkl \
-    --candidate_preprocessed \
+    --candidate_dataset ${DATA_PATH}/pages_preprocessed_for_bert-base-japanese.jsonl \
     --input_path ${DATA_PATH}/linkjp-sample-210402 \
     --category ${CATEGORY} \
     --builder_gpu \
@@ -21,4 +20,3 @@ python predict.py \
     --max_desc_len 128 \
     --fp16 \
     --fp16_opt_level O1 \
-

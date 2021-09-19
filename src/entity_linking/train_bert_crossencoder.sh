@@ -2,7 +2,6 @@ DATASET_PATH_PREFIX=/data/training_data_preprocessd_for_bert-base-japanese_1M_NN
 CAND_DATASET=/data/pages_preprocessed_for_bert-base-japanese.pkl
 MODEL_PATH=/models/bert_crossencoder_with_negative_fixed.model
 
-export CUDA_VISIBLE_DEVICES=1,0
 
 CUDA_VISIBLE_DEVICES=0,1 python train_bert_crossencoder.py \
     --model_name cl-tohoku/bert-base-japanese \

@@ -1,5 +1,5 @@
 DATASET_PATH_PREFIX=/data/training_data_preprocessd_for_bert-base-japanese_9M
-CAND_DATASET=/data/pages_preprocessed_for_bert-base-japanese.pkl
+CAND_DATASET=/data/pages_preprocessed_for_bert-base-japanese.txt
 NEG_PATH=/data/data_with_negatives
 MODEL_PATH_PREFIX=/models/bert_biencoder_with_negatives_4
 
@@ -14,7 +14,6 @@ CUDA_VISIBLE_DEVICES=0,1 python train_bert_biencoder.py \
     --faiss_gpu_id 0 \
     --path_for_NN ${NEG_PATH} \
     --model_path ${MODEL_PATH_PREFIX} \
-    --candidate_preprocessed \
     --mention_preprocessed \
     --lr 1e-5 \
     --bsz 128 \
