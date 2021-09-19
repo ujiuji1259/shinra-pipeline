@@ -16,3 +16,6 @@
 
 ## 属性抽出
 [こちら](src/attribute_extraction/README.md)を参照してください．
+
+## Entity Linking
+[こちら](src/entity_linking/README.md)を参照してください．
