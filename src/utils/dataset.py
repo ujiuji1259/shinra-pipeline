@@ -87,41 +87,59 @@ class ShinraData(object):
             setattr(self, key, value)
 
     @classmethod
-    def from_one_doc_json(
+    def from_plain_wiki(
         cls,
         attributes_path=None,
+        category=None,
         input_path=None,
         tokenizer=None,
     ):
-        with open(input_path, "r") as f:
-            data = json.load(f)
-        """
-        data = {
-            "page_id": page_id,
-            "page_title": title,
-            "category": category,
-            "plain_text":
-        }
-        """
-        tokens = []
-        text_offsets = []
-        sub2words = []
-        word_alignments = []
-        for sent in data["plain_text"]:
-            subwords, offset = tokenize_sent(sent, tokenizer)
-            word_alignment, sub2word = find_word_alignment(subwords)
+        base_attribute_path = Path(attribute_path)
+        attribute_path = base_attribute_path / f"{category}.txt"
+        with open(attribute_path, "r") as f:
+            attributes = [attr for attr in f.read().split("\n") if attr != '']
+        yield attributes
 
-            tokens.append(subwords)
-            text_offsets.append(offset)
-            sub2words.append(sub2word)
-            word_alignments.append(word_alignment)
+        files = Path(input_path).glob("*.txt")
+        for fn in files:
+            page_id = int(fn.stem)
+            tokens = []
+            text_offsets = []
+            sub2words = []
+            word_alignments = []
+            with open(fn, 'r') as f:
+                for line in f:
+                    line = line.rstrip()
+                    if not line:
+                        tokens.append([])
+                        text_offsets.append([])
+                        sub2words.append([])
+                        word_alignments.append([])
 
-        data["tokens"] = tokens
-        data["word_alignments"] = word_alignments
-        data["sub2word"] = sub2words
-        data["text_offsets"] = text_offsets
+                    subwords, offset = tokenize_sent(sent, tokenizer)
+                    word_alignment, sub2word = find_word_alignment(subwords)
 
-        return cls(attributes_path, params=data)
+                    tokens.append(subwords)
+                    text_offsets.append(offset)
+                    sub2words.append(sub2word)
+                    word_alignments.append(word_alignment)
+
+                    # find title
+                    if line_id == 4:
+                        pos = sent.find("-jawiki")
+                        title = sent[:pos]
+
+                data = {
+                    "page_id": page_id,
+                    "page_title": title,
+                    "category": category,
+                    "tokens": tokens,
+                    "text_offsets": text_offsets,
+                    "word_alignments": word_alignments,
+                    "sub2word": sub2word,
+                }
+
+                yield cls(attributes, params=data)
 
     @classmethod
     def from_linkjp_format(
@@ -188,12 +206,18 @@ class ShinraData(object):
     def from_shinra2020_format(
         cls,
         input_path=None,
-        get_attributes=False):
+        get_attributes=False,
+        attribute_path=None):
 
         input_path = Path(input_path)
         category = input_path.stem
 
-        attribute_path = input_path.parent.parent / "attributes" / f"{category}.txt"
+        if attribute_path is None:
+            base_attribute_path = input_path.parent.parent / "attributes"
+        else:
+            base_attribute_path = Path(attribute_path)
+
+        attribute_path = base_attribute_path / f"{category}.txt"
 
         anns = load_annotation(input_path / f"{category}_dist.json")
         vocab = load_vocab(input_path / "vocab.txt")
