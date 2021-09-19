@@ -22,6 +22,37 @@
 
 ## Pipeline
 `{page_id}.txt`の形式の同一カテゴリのwikipedia記事を入力として、属性抽出、entity linkingを行い、森羅の提出フォーマットで結果を出力します．
+
+### 各種データ
+- 入力データ
+```
+input_dir
+|-- 1001711.txt
+|-- 1002892.txt
+|-- 1039549.txt
+|-- 1042592.txt
+|-- 106524.txt
+|-- 111707.txt
+...
+```
+
+- 各カテゴリの属性
+```
+attributes
+|-- Accommodation.txt
+|-- Airport.txt
+|-- Amusement_Park.txt
+|-- Archaeological_Place_Other.txt
+|-- Bay.txt
+|-- Bridge.txt
+|-- Canal.txt
+|-- Car_Stop.txt
+...
+```
+
+その他のデータについては[属性抽出](src/attribute_extraction/README.md)，[entity_linking]((src/entity_linking/README.md))のREADMEを参照ください．
+
+### 推論
 ```
 cd src
 bash pipeline.sh
