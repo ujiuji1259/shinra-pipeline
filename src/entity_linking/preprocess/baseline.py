@@ -39,8 +39,10 @@ if __name__ == "__main__":
                 page = link_using_atag(html_text, title2id)
                 if page is None:
                     page = find_reccursive_page(d['annotation'], args.category, None)
-                if page is None:
-                    page = exact_match(d['annotation']['text_offset']['text'], title2id)
+                # if page is None:
+                    # page = exact_match(d['annotation']['text_offset']['text'], title2id)
+                # page = exact_match(d['annotation']['text_offset']['text'], title2id)
+                # page = find_reccursive_page(d['annotation'], args.category, None)
 
                 if page is not None:
                     output_dict = d['annotation']
@@ -48,3 +50,4 @@ if __name__ == "__main__":
                     output_dict['link_page_id'] = str(page)
 
                     f.write(json.dumps(output_dict, ensure_ascii=False) + '\n')
+

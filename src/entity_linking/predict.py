@@ -38,7 +38,8 @@ def entity_linking_for_shinradata(biencoder, crossencoder, mention_tokenizer, sh
 
     for output_data, preds in zip(original_annotation, cross_preds):
         output_data["link_page_id"] = str(preds[0][0])
-        output_data["score"] = str(preds[0][1])
+        output_data["score"] = preds[0][1]
+        output_data['candidates'] = [p[0] for p in preds]
 
     return original_annotation
 
@@ -196,12 +197,12 @@ def main():
     candidate_bert = AutoModel.from_pretrained(args.model_name)
 
     biencoder = BertBiEncoder(mention_bert, candidate_bert)
-    biencoder.load_state_dict(torch.load(args.biencoder_path))
+    biencoder.load_state_dict(torch.load(args.biencoder_path), strict=False)
 
     cross_bert = AutoModel.from_pretrained(args.model_name)
     cross_bert.resize_token_embeddings(len(mention_tokenizer))
     crossencoder = BertCrossEncoder(cross_bert)
-    crossencoder.load_state_dict(torch.load(args.crossencoder_path))
+    crossencoder.load_state_dict(torch.load(args.crossencoder_path), strict=False)
 
 
     model = BertCandidateGenerator(

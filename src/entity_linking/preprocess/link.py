@@ -19,7 +19,6 @@ default_rec_list = [
     ("Compound", "別称"),
     ("Compound", "商標名"),
     ("Airport", "旧称"),
-    ("City", "旧称"),
     ("Conference", "旧称・前身"),
     ("Company", "起源"),
     ("Company", "過去の社名"),
@@ -54,12 +53,11 @@ def find_reccursive_page(ann, category, rec_list):
 
 
 if __name__ == "__main__":
-
     title2id = load_title2id("/data1/ujiie/wiki_resource/title2page.csv")
     tokenizer = AutoTokenizer.from_pretrained("cl-tohoku/bert-base-japanese")
     dataset = ShinraData.from_linkjp_format(
         input_path="/data1/ujiie/shinra/EN/linkjp-sample-210402",
-        category="Airport",
+        category="City",
         tokenizer=tokenizer
     )
     s = 0
@@ -71,9 +69,10 @@ if __name__ == "__main__":
             html_text = d['annotation']['html_offset']['text']
             s += 1
             page = link_using_atag(html_text, title2id)
-            if page is None:
-                page = exact_match(d['annotation']['text_offset']['text'], title2id)
-            if page is None:
-                page = find_reccursive_page(d['annotation'], category, rec_list)
+            #if page is None:
+                #page = exact_match(d['annotation']['text_offset']['text'], title2id)
+            #if page is None:
+                #page = find_reccursive_page(d['annotation'], category, rec_list)
             l += int(page is not None)
     print(l, s)
+
