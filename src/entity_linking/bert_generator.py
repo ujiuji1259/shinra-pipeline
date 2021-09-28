@@ -59,7 +59,7 @@ class BertCandidateGenerator(object):
         overall_scores = []
         trues = []
 
-        dataloader = DataLoader(mention_dataset, batch_size=256, collate_fn=my_collate_fn, num_workers=2)
+        dataloader = DataLoader(mention_dataset, batch_size=256, collate_fn=my_collate_fn, num_workers=2, shuffle=False)
         with torch.no_grad():
             for input_ids, labels in dataloader:
                 if self.logger:

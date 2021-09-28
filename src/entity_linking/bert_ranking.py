@@ -48,6 +48,7 @@ class BertCrossEncoder(nn.Module):
         bertrep = self.model(input_ids, attention_mask=attention_mask).last_hidden_state
         bertrep = bertrep[:, 0, :]
         output = self.linear_layer(bertrep)
+        #output = torch.tanh(output)
 
         return output
 
@@ -168,8 +169,8 @@ class BertCandidateRanker(object):
                 target = torch.LongTensor([0]*scores.size(0)).to(self.device)
                 #loss = F.cross_entropy(scores, target, reduction="mean")
                 loss = loss_fn(scores, target)
-                if loss.item() < 1e-24:
-                    continue
+                # if loss.item() < 1e-24:
+                #     continue
                 #target = torch.tensor(output_label, dtype=float).to(self.device)
                 #loss = loss_fn(scores, target.unsqueeze(1))
                 if torch.isnan(loss):
